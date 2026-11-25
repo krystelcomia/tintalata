@@ -1,0 +1,202 @@
+export type UserRole = 'student' | 'admin';
+export type AccountStatus = 'active' | 'suspended' | 'inactive';
+
+export interface User {
+  id: string;
+  email: string;
+  fullName: string;
+  studentNumber: string;
+  courseSection: string;
+  role: UserRole;
+  status: AccountStatus;
+  storageQuotaBytes: number;
+  storageUsedBytes: number;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface StorageSummary {
+  quotaBytes: number;
+  usedBytes: number;
+  remainingBytes: number;
+  activeBytes: number;
+  trashBytes: number;
+  quotaMB: number;
+  usedMB: number;
+  remainingMB: number;
+  activeMB: number;
+  trashMB: number;
+  percentUsed: number;
+  activeDocCount: number;
+  trashDocCount: number;
+  activeFolderCount: number;
+  trashFolderCount: number;
+}
+
+export type FolderColor =
+  | 'blue'
+  | 'indigo'
+  | 'sky'
+  | 'teal'
+  | 'emerald'
+  | 'amber'
+  | 'rose'
+  | 'slate';
+
+export type FolderIcon =
+  | 'folder'
+  | 'book'
+  | 'graduation'
+  | 'palette'
+  | 'flask'
+  | 'calculator'
+  | 'star'
+  | 'briefcase';
+
+export interface Folder {
+  id: string;
+  parentId: string | null;
+  name: string;
+  color: FolderColor;
+  icon: FolderIcon;
+  docCount: number;
+  subfolderCount: number;
+  totalBytes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DoodleStroke {
+  tool: 'pen' | 'highlighter' | 'eraser' | 'line' | 'rect' | 'circle';
+  color: string;
+  width: number;
+  opacity: number;
+  points: Array<{ x: number; y: number }>;
+}
+
+export interface DoodleItem {
+  id: string;
+  title: string;
+  width: number;
+  height: number;
+  background: 'white' | 'transparent' | 'grid';
+  strokes: DoodleStroke[];
+  dataUrl: string;
+  updatedAt: string;
+}
+
+export interface PageSettings {
+  orientation: 'portrait' | 'landscape';
+  margins: 'normal' | 'narrow' | 'wide';
+  pageColor: string;
+}
+
+export interface DocumentSummary {
+  id: string;
+  folderId: string | null;
+  folderName: string | null;
+  title: string;
+  previewText: string;
+  doodleCount: number;
+  wordCount: number;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentFull extends DocumentSummary {
+  contentHtml: string;
+  doodles: DoodleItem[];
+  pageSettings: PageSettings;
+}
+
+export interface TrashFolder {
+  id: string;
+  name: string;
+  color: FolderColor;
+  icon: FolderIcon;
+  deletedAt: string;
+  nestedDocCount: number;
+  nestedFolderCount: number;
+  nestedBytes: number;
+}
+
+export interface TrashDocument {
+  id: string;
+  title: string;
+  originalFolderName: string | null;
+  wordCount: number;
+  sizeBytes: number;
+  deletedAt: string;
+}
+
+export interface AccessGrant {
+  id: string;
+  studentId: string;
+  adminId: string | null;
+  adminName: string;
+  permissionLevel: 'read' | 'read_write';
+  status: 'pending' | 'approved' | 'denied' | 'revoked' | 'expired';
+  reason: string;
+  requestedByAdmin: boolean;
+  expiresAt: string | null;
+  createdAt: string;
+  respondedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  actorName: string;
+  actorRole?: string;
+  targetName?: string;
+  action: string;
+  details: string;
+  createdAt: string;
+}
+
+export interface AdminOverview {
+  totalStudents: number;
+  activeStudents: number;
+  suspendedStudents: number;
+  inactiveStudents: number;
+  totalUsedMB: number;
+  totalQuotaMB: number;
+  totalActiveDocs: number;
+  totalTrashDocs: number;
+  authorizedStudentCount: number;
+}
+
+export interface AdminStudent {
+  id: string;
+  email: string;
+  fullName: string;
+  studentNumber: string;
+  courseSection: string;
+  status: AccountStatus;
+  storageQuotaBytes: number;
+  storageUsedBytes: number;
+  storageQuotaMB: number;
+  storageUsedMB: number;
+  storageRemainingMB: number;
+  activeDocCount: number;
+  activeFolderCount: number;
+  trashDocCount: number;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string | null;
+  authorization: {
+    state: 'none' | 'pending' | 'approved';
+    grantId?: string;
+    permissionLevel: 'read' | 'read_write' | null;
+    expiresAt?: string | null;
+    reason?: string;
+    createdAt?: string;
+  };
+}
+
+export interface ToastMessage {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  text: string;
+}
