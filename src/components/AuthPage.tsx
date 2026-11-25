@@ -16,6 +16,7 @@ import { apiRequest } from '../utils/api';
 import type { StorageSummary, User } from '../types';
 import { TintalataLogo } from './TintalataLogo';
 import { PasswordInput } from './PasswordInput';
+import authBg from '../assets/auth-bg.jpg';
 
 export type AuthRouteMode = 'login' | 'register' | 'forgot-password';
 
@@ -224,18 +225,19 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
         </div>
       </header>
 
-      {/* Full-Screen Centered Application Canvas (No floating boxed card / No promo column) */}
+      {/* Full-Screen Centered Application Canvas with Custom Study Background */}
       <main className="relative flex-1 w-full flex items-center justify-center px-4 sm:px-8 py-8 overflow-y-auto">
-        {/* Subtle full-screen architectural blue accent backdrop */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 overflow-hidden"
-        >
-          <div className="absolute -top-36 -right-36 h-96 w-96 rounded-full bg-blue-100/70 blur-3xl" />
-          <div className="absolute -bottom-36 -left-36 h-96 w-96 rounded-full bg-sky-100/70 blur-3xl" />
-        </div>
+          className="pointer-events-none absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: `url(${authBg})` }}
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-50/45 via-white/30 to-blue-100/45"
+        />
 
-        <div className="relative z-10 w-full max-w-md mx-auto">
+        <div className="relative z-10 w-full max-w-md mx-auto rounded-2xl bg-white/88 backdrop-blur-md border border-white/80 shadow-xl shadow-blue-950/10 p-6 sm:p-8">
           {mode === 'login' && (
             <div className="space-y-6">
               {/* Centered Brand Emblem & Title */}
