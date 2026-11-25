@@ -7,7 +7,7 @@ interface TintalataLogoProps {
 
 export function TintalataLogo({ size = 'md', variant = 'default' }: TintalataLogoProps) {
   const dims =
-    size === 'sm' ? 'h-9 w-9' : size === 'lg' ? 'h-16 w-16' : 'h-12 w-12';
+    size === 'sm' ? 'h-11 w-11' : size === 'lg' ? 'h-24 w-24' : 'h-16 w-16';
   const ring =
     variant === 'light'
       ? 'ring-2 ring-white/40 shadow-md shadow-blue-950/25'
