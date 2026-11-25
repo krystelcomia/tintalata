@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { requireAuth, resolveWorkspaceAccess } from '../middleware/auth.mjs';
 import { buildFolderZipBuffer } from '../utils/export.mjs';
+import { asyncHandler } from '../utils/http.mjs';
 
 const VALID_COLORS = new Set([
   'blue',
@@ -39,12 +40,16 @@ function formatFolderRow(row) {
   };
 }
 
-function getAllDescendantFolderIds(db, ownerId, rootFolderId, { includeDeleted = false } = {}) {
-  const rows = db
-    .prepare(
-      `SELECT id, parent_id FROM folders WHERE user_id = ? ${includeDeleted ? '' : 'AND is_deleted = 0'}`
-    )
-    .all(ownerId);
+async function getAllDescendantFolderIds(
+  db,
+  ownerId,
+  rootFolderId,
+  { includeDeleted = false } = {}
+) {
+  const rows = await db.all(
+    `SELECT id, parent_id FROM folders WHERE user_id = ? ${includeDeleted ? '' : 'AND is_deleted = 0'}`,
+    ownerId
+  );
 
   const byParent = new Map();
   for (const r of rows) {
@@ -74,30 +79,34 @@ function getAllDescendantFolderIds(db, ownerId, rootFolderId, { includeDeleted =
 export function createFoldersRouter(db) {
   const router = express.Router();
 
-  router.get('/', requireAuth, resolveWorkspaceAccess(db), (req, res) => {
-    const ownerId = req.workspace.ownerId;
-    const rows = db
-      .prepare(
+  router.get(
+    '/',
+    requireAuth,
+    resolveWorkspaceAccess(db),
+    asyncHandler(async (req, res) => {
+      const ownerId = req.workspace.ownerId;
+      const rows = await db.all(
         `SELECT f.*,
           (SELECT COUNT(*) FROM documents d WHERE d.folder_id = f.id AND d.is_deleted = 0) AS doc_count,
           (SELECT COUNT(*) FROM folders sf WHERE sf.parent_id = f.id AND sf.is_deleted = 0) AS subfolder_count,
           (SELECT COALESCE(SUM(d.size_bytes), 0) FROM documents d WHERE d.folder_id = f.id AND d.is_deleted = 0) AS total_bytes
          FROM folders f
          WHERE f.user_id = ? AND f.is_deleted = 0
-         ORDER BY f.name COLLATE NOCASE ASC`
-      )
-      .all(ownerId);
+         ORDER BY LOWER(f.name) ASC`,
+        ownerId
+      );
 
-    return res.json({
-      folders: rows.map(formatFolderRow),
-    });
-  });
+      return res.json({
+        folders: rows.map(formatFolderRow),
+      });
+    })
+  );
 
   router.post(
     '/',
     requireAuth,
     resolveWorkspaceAccess(db, { requireWrite: true }),
-    (req, res) => {
+    asyncHandler(async (req, res) => {
       const ownerId = req.workspace.ownerId;
       const { name = '', parentId = null, color = 'blue', icon = 'folder' } = req.body || {};
 
@@ -113,9 +122,11 @@ export function createFoldersRouter(db) {
 
       let resolvedParentId = null;
       if (parentId) {
-        const parent = db
-          .prepare('SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0')
-          .get(parentId, ownerId);
+        const parent = await db.get(
+          'SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0',
+          parentId,
+          ownerId
+        );
         if (!parent) {
           return res.status(404).json({ error: 'Hindi natagpuan ang napiling pangunahing folder.' });
         }
@@ -124,28 +135,38 @@ export function createFoldersRouter(db) {
 
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
-      db.prepare(
+      await db.run(
         `INSERT INTO folders (id, user_id, parent_id, name, color, icon, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(id, ownerId, resolvedParentId, cleanName, safeColor, safeIcon, now, now);
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        ownerId,
+        resolvedParentId,
+        cleanName,
+        safeColor,
+        safeIcon,
+        now,
+        now
+      );
 
-      const created = db.prepare('SELECT * FROM folders WHERE id = ?').get(id);
+      const created = await db.get('SELECT * FROM folders WHERE id = ?', id);
       return res.status(201).json({
         message: `Nagawa na ang folder na "${cleanName}".`,
         folder: formatFolderRow(created),
       });
-    }
+    })
   );
 
   router.patch(
     '/:id',
     requireAuth,
     resolveWorkspaceAccess(db, { requireWrite: true }),
-    (req, res) => {
+    asyncHandler(async (req, res) => {
       const ownerId = req.workspace.ownerId;
-      const folder = db
-        .prepare('SELECT * FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0')
-        .get(req.params.id, ownerId);
+      const folder = await db.get(
+        'SELECT * FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        ownerId
+      );
 
       if (!folder) {
         return res.status(404).json({ error: 'Hindi natagpuan ang folder.' });
@@ -172,15 +193,17 @@ export function createFoldersRouter(db) {
               error: 'Hindi maaaring ilipat ang folder sa loob mismo ng sarili nito.',
             });
           }
-          const descendants = new Set(getAllDescendantFolderIds(db, ownerId, folder.id));
+          const descendants = new Set(await getAllDescendantFolderIds(db, ownerId, folder.id));
           if (descendants.has(parentId)) {
             return res.status(400).json({
               error: 'Hindi maaaring ilipat ang folder sa loob ng sarili nitong subfolder.',
             });
           }
-          const targetParent = db
-            .prepare('SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0')
-            .get(parentId, ownerId);
+          const targetParent = await db.get(
+            'SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0',
+            parentId,
+            ownerId
+          );
           if (!targetParent) {
             return res.status(404).json({ error: 'Hindi natagpuan ang paglilipatang folder.' });
           }
@@ -189,102 +212,130 @@ export function createFoldersRouter(db) {
       }
 
       const now = new Date().toISOString();
-      db.prepare(
+      await db.run(
         `UPDATE folders SET name = ?, color = ?, icon = ?, parent_id = ?, updated_at = ?
-         WHERE id = ? AND user_id = ?`
-      ).run(nextName, nextColor, nextIcon, nextParentId, now, folder.id, ownerId);
+         WHERE id = ? AND user_id = ?`,
+        nextName,
+        nextColor,
+        nextIcon,
+        nextParentId,
+        now,
+        folder.id,
+        ownerId
+      );
 
-      const updated = db
-        .prepare(
-          `SELECT f.*,
-            (SELECT COUNT(*) FROM documents d WHERE d.folder_id = f.id AND d.is_deleted = 0) AS doc_count,
-            (SELECT COUNT(*) FROM folders sf WHERE sf.parent_id = f.id AND sf.is_deleted = 0) AS subfolder_count,
-            (SELECT COALESCE(SUM(d.size_bytes), 0) FROM documents d WHERE d.folder_id = f.id AND d.is_deleted = 0) AS total_bytes
-           FROM folders f WHERE f.id = ?`
-        )
-        .get(folder.id);
+      const updated = await db.get(
+        `SELECT f.*,
+          (SELECT COUNT(*) FROM documents d WHERE d.folder_id = f.id AND d.is_deleted = 0) AS doc_count,
+          (SELECT COUNT(*) FROM folders sf WHERE sf.parent_id = f.id AND sf.is_deleted = 0) AS subfolder_count,
+          (SELECT COALESCE(SUM(d.size_bytes), 0) FROM documents d WHERE d.folder_id = f.id AND d.is_deleted = 0) AS total_bytes
+         FROM folders f WHERE f.id = ?`,
+        folder.id
+      );
 
       return res.json({
         message: 'Matagumpay na na-update ang folder.',
         folder: formatFolderRow(updated),
       });
-    }
+    })
   );
 
-  router.get('/:id/download', requireAuth, resolveWorkspaceAccess(db), async (req, res) => {
-    const ownerId = req.workspace.ownerId;
-    const folder = db
-      .prepare('SELECT * FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0')
-      .get(req.params.id, ownerId);
-
-    if (!folder) {
-      return res.status(404).json({ error: 'Hindi natagpuan ang folder.' });
-    }
-
-    const allFolders = db
-      .prepare('SELECT * FROM folders WHERE user_id = ? AND is_deleted = 0')
-      .all(ownerId);
-    const allDocs = db
-      .prepare('SELECT * FROM documents WHERE user_id = ? AND is_deleted = 0')
-      .all(ownerId);
-
-    const format = req.query.format || 'docx';
-    const { filename, buffer } = await buildFolderZipBuffer(folder, allFolders, allDocs, format);
-
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
-    );
-    return res.send(buffer);
-  });
-
-  router.delete(
-    '/:id',
+  router.get(
+    '/:id/download',
     requireAuth,
-    resolveWorkspaceAccess(db, { requireWrite: true }),
-    (req, res) => {
+    resolveWorkspaceAccess(db),
+    asyncHandler(async (req, res) => {
       const ownerId = req.workspace.ownerId;
-      const folder = db
-        .prepare('SELECT * FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0')
-        .get(req.params.id, ownerId);
+      const folder = await db.get(
+        'SELECT * FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        ownerId
+      );
 
       if (!folder) {
         return res.status(404).json({ error: 'Hindi natagpuan ang folder.' });
       }
 
-      const descendants = getAllDescendantFolderIds(db, ownerId, folder.id);
+      const allFolders = await db.all(
+        'SELECT * FROM folders WHERE user_id = ? AND is_deleted = 0',
+        ownerId
+      );
+      const allDocs = await db.all(
+        'SELECT * FROM documents WHERE user_id = ? AND is_deleted = 0',
+        ownerId
+      );
+
+      const format = req.query.format || 'docx';
+      const { filename, buffer } = await buildFolderZipBuffer(folder, allFolders, allDocs, format);
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+      );
+      return res.send(buffer);
+    })
+  );
+
+  router.delete(
+    '/:id',
+    requireAuth,
+    resolveWorkspaceAccess(db, { requireWrite: true }),
+    asyncHandler(async (req, res) => {
+      const ownerId = req.workspace.ownerId;
+      const folder = await db.get(
+        'SELECT * FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        ownerId
+      );
+
+      if (!folder) {
+        return res.status(404).json({ error: 'Hindi natagpuan ang folder.' });
+      }
+
+      const descendants = await getAllDescendantFolderIds(db, ownerId, folder.id);
       const allTargetFolderIds = [folder.id, ...descendants];
       const now = new Date().toISOString();
 
-      // Soft-delete root folder (marked as independently deleted: deleted_with_parent_id = NULL)
-      db.prepare(
+      await db.run(
         `UPDATE folders
          SET is_deleted = 1, deleted_at = ?, deleted_with_parent_id = NULL, updated_at = ?
-         WHERE id = ? AND user_id = ?`
-      ).run(now, now, folder.id, ownerId);
+         WHERE id = ? AND user_id = ?`,
+        now,
+        now,
+        folder.id,
+        ownerId
+      );
 
-      // Soft-delete active descendants with marker pointing to this root deleted folder
       for (const subId of descendants) {
-        db.prepare(
+        await db.run(
           `UPDATE folders
            SET is_deleted = 1, deleted_at = ?, deleted_with_parent_id = ?, updated_at = ?
-           WHERE id = ? AND user_id = ? AND is_deleted = 0`
-        ).run(now, folder.id, now, subId, ownerId);
+           WHERE id = ? AND user_id = ? AND is_deleted = 0`,
+          now,
+          folder.id,
+          now,
+          subId,
+          ownerId
+        );
       }
 
-      // Soft-delete active documents inside any of these folders
       const placeholders = allTargetFolderIds.map(() => '?').join(',');
-      db.prepare(
+      await db.run(
         `UPDATE documents
          SET is_deleted = 1, deleted_at = ?, deleted_with_folder_id = ?, updated_at = ?
-         WHERE user_id = ? AND is_deleted = 0 AND folder_id IN (${placeholders})`
-      ).run(now, folder.id, now, ownerId, ...allTargetFolderIds);
+         WHERE user_id = ? AND is_deleted = 0 AND folder_id IN (${placeholders})`,
+        now,
+        folder.id,
+        now,
+        ownerId,
+        ...allTargetFolderIds
+      );
 
       return res.json({
         message: `Nailipat sa Basurahan ang folder na "${folder.name}" at ang mga nilalaman nito.`,
       });
-    }
+    })
   );
 
   return router;

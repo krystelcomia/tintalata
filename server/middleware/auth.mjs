@@ -1,5 +1,6 @@
 import { CONFIG } from '../config.mjs';
 import { verifySignedCookie } from '../utils/crypto.mjs';
+import { asyncHandler } from '../utils/http.mjs';
 import { logAudit } from '../db.mjs';
 
 export function parseCookies(header) {
@@ -21,6 +22,12 @@ export function parseCookies(header) {
   return cookies;
 }
 
+function isSecureRequest(res) {
+  const req = res.req;
+  const proto = req?.headers?.['x-forwarded-proto'];
+  return Boolean(req?.secure || proto === 'https' || process.env.COOKIE_SECURE === 'true');
+}
+
 export function setSessionCookie(res, cookieValue) {
   const maxAgeSec = Math.floor(CONFIG.SESSION_TTL_MS / 1000);
   res.cookie(CONFIG.SESSION_COOKIE_NAME, cookieValue, {
@@ -28,7 +35,7 @@ export function setSessionCookie(res, cookieValue) {
     sameSite: 'lax',
     path: '/',
     maxAge: maxAgeSec * 1000,
-    secure: process.env.NODE_ENV === 'production' && process.env.COOKIE_SECURE === 'true',
+    secure: isSecureRequest(res),
   });
 }
 
@@ -37,11 +44,12 @@ export function clearSessionCookie(res) {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
+    secure: isSecureRequest(res),
   });
 }
 
 export function attachAuth(db) {
-  return (req, res, next) => {
+  return asyncHandler(async (req, res, next) => {
     req.user = null;
     req.sessionTokenHash = null;
 
@@ -55,17 +63,16 @@ export function attachAuth(db) {
       return next();
     }
 
-    const row = db
-      .prepare(
-        `SELECT s.id AS session_id, s.expires_at,
-                u.id, u.email, u.full_name, u.student_number, u.course_section,
-                u.role, u.status, u.storage_quota_bytes, u.storage_used_bytes,
-                u.created_at, u.last_login_at
-         FROM sessions s
-         JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ?`
-      )
-      .get(tokenHash);
+    const row = await db.get(
+      `SELECT s.id AS session_id, s.expires_at,
+              u.id, u.email, u.full_name, u.student_number, u.course_section,
+              u.role, u.status, u.storage_quota_bytes, u.storage_used_bytes,
+              u.created_at, u.last_login_at
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ?`,
+      tokenHash
+    );
 
     if (!row) {
       clearSessionCookie(res);
@@ -73,13 +80,13 @@ export function attachAuth(db) {
     }
 
     if (new Date(row.expires_at).getTime() <= Date.now()) {
-      db.prepare('DELETE FROM sessions WHERE id = ?').run(row.session_id);
+      await db.run('DELETE FROM sessions WHERE id = ?', row.session_id);
       clearSessionCookie(res);
       return next();
     }
 
     if (row.status !== 'active') {
-      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.id);
+      await db.run('DELETE FROM sessions WHERE user_id = ?', row.id);
       clearSessionCookie(res);
       req.accountBlockedStatus = row.status;
       return next();
@@ -100,7 +107,7 @@ export function attachAuth(db) {
     };
     req.sessionTokenHash = tokenHash;
     next();
-  };
+  });
 }
 
 export function requireAuth(req, res, next) {
@@ -138,13 +145,9 @@ export function requireRole(role) {
 
 /**
  * Resolves the target workspace owner for document/folder/trash routes.
- * - Students can ONLY access their own workspace.
- * - Admins CANNOT access any student's private files unless an explicit,
- *   unexpired, student-approved access grant exists and is specified via
- *   `X-Support-Student-Id` header (or `supportStudentId` query param).
  */
 export function resolveWorkspaceAccess(db, { requireWrite = false } = {}) {
-  return (req, res, next) => {
+  return asyncHandler(async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Kailangan munang mag-log in upang magpatuloy.' });
     }
@@ -158,7 +161,6 @@ export function resolveWorkspaceAccess(db, { requireWrite = false } = {}) {
       return next();
     }
 
-    // Admin attempting to access a student workspace: strictly gated by student authorization
     const supportStudentId =
       req.headers['x-support-student-id'] || req.query.supportStudentId || '';
 
@@ -170,22 +172,21 @@ export function resolveWorkspaceAccess(db, { requireWrite = false } = {}) {
     }
 
     const nowIso = new Date().toISOString();
-    // Auto-expire grants past expires_at
-    db.prepare(
+    await db.run(
       `UPDATE access_grants
        SET status = 'expired'
-       WHERE status = 'approved' AND expires_at IS NOT NULL AND expires_at <= ?`
-    ).run(nowIso);
+       WHERE status = 'approved' AND expires_at IS NOT NULL AND expires_at <= ?`,
+      nowIso
+    );
 
-    const grant = db
-      .prepare(
-        `SELECT id, permission_level, expires_at
-         FROM access_grants
-         WHERE student_id = ? AND status = 'approved'
-         ORDER BY responded_at DESC, created_at DESC
-         LIMIT 1`
-      )
-      .get(supportStudentId);
+    const grant = await db.get(
+      `SELECT id, permission_level, expires_at
+       FROM access_grants
+       WHERE student_id = ? AND status = 'approved'
+       ORDER BY responded_at DESC, created_at DESC
+       LIMIT 1`,
+      supportStudentId
+    );
 
     if (!grant) {
       return res.status(403).json({
@@ -209,7 +210,7 @@ export function resolveWorkspaceAccess(db, { requireWrite = false } = {}) {
     };
 
     if (requireWrite) {
-      logAudit(db, {
+      await logAudit(db, {
         actorId: req.user.id,
         targetUserId: supportStudentId,
         action: 'ADMIN_AUTHORIZED_WRITE',
@@ -218,5 +219,5 @@ export function resolveWorkspaceAccess(db, { requireWrite = false } = {}) {
     }
 
     next();
-  };
+  });
 }

@@ -2,31 +2,108 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import pg from 'pg';
 import { CONFIG } from './config.mjs';
 import { hashPassword } from './utils/crypto.mjs';
 
-export function createDatabase(dbPath = CONFIG.DB_PATH) {
+const { Pool } = pg;
+
+function toPgPlaceholders(sql) {
+  let idx = 0;
+  return sql.replace(/\?/g, () => `$${++idx}`);
+}
+
+function createSqliteAdapter(dbPath) {
   if (dbPath !== ':memory:') {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   }
-  const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA foreign_keys = ON;');
+  const raw = new DatabaseSync(dbPath);
+  raw.exec('PRAGMA foreign_keys = ON;');
   if (dbPath !== ':memory:') {
-    db.exec('PRAGMA journal_mode = WAL;');
+    raw.exec('PRAGMA journal_mode = WAL;');
   }
 
-  db.exec(`
+  return {
+    dialect: 'sqlite',
+    storageMode: dbPath === ':memory:' ? 'sqlite-memory' : CONFIG.STORAGE_MODE,
+    async get(sql, ...params) {
+      return raw.prepare(sql).get(...params);
+    },
+    async all(sql, ...params) {
+      return raw.prepare(sql).all(...params);
+    },
+    async run(sql, ...params) {
+      const info = raw.prepare(sql).run(...params);
+      return { changes: Number(info?.changes || 0) };
+    },
+    async exec(sql) {
+      raw.exec(sql);
+    },
+    async close() {
+      raw.close();
+    },
+  };
+}
+
+function createPostgresAdapter(connectionString) {
+  const needsSsl =
+    !connectionString.includes('localhost') && !connectionString.includes('127.0.0.1');
+  const pool = new Pool({
+    connectionString,
+    ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+    max: 5,
+  });
+
+  return {
+    dialect: 'postgres',
+    storageMode: 'postgres',
+    async get(sql, ...params) {
+      const res = await pool.query(toPgPlaceholders(sql), params);
+      return res.rows[0] || undefined;
+    },
+    async all(sql, ...params) {
+      const res = await pool.query(toPgPlaceholders(sql), params);
+      return res.rows;
+    },
+    async run(sql, ...params) {
+      const res = await pool.query(toPgPlaceholders(sql), params);
+      return { changes: Number(res.rowCount || 0) };
+    },
+    async exec(sql) {
+      await pool.query(sql);
+    },
+    async close() {
+      await pool.end();
+    },
+  };
+}
+
+export async function createDatabase(dbPath = CONFIG.DB_PATH) {
+  const usePostgres =
+    dbPath !== ':memory:' &&
+    Boolean(CONFIG.DATABASE_URL) &&
+    /^postgres(ql)?:\/\//i.test(CONFIG.DATABASE_URL);
+
+  const db = usePostgres
+    ? createPostgresAdapter(CONFIG.DATABASE_URL)
+    : createSqliteAdapter(dbPath);
+
+  const int64Type = db.dialect === 'postgres' ? 'BIGINT' : 'INTEGER';
+  const emailColDef =
+    db.dialect === 'postgres' ? 'TEXT NOT NULL UNIQUE' : 'TEXT NOT NULL UNIQUE COLLATE NOCASE';
+
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      email ${emailColDef},
       password_hash TEXT NOT NULL,
       full_name TEXT NOT NULL,
       student_number TEXT DEFAULT '',
       course_section TEXT DEFAULT '',
       role TEXT NOT NULL CHECK (role IN ('student', 'admin')),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'inactive')),
-      storage_quota_bytes INTEGER NOT NULL DEFAULT ${CONFIG.DEFAULT_STORAGE_QUOTA_BYTES},
-      storage_used_bytes INTEGER NOT NULL DEFAULT 0,
+      storage_quota_bytes ${int64Type} NOT NULL DEFAULT ${CONFIG.DEFAULT_STORAGE_QUOTA_BYTES},
+      storage_used_bytes ${int64Type} NOT NULL DEFAULT 0,
       managed_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       notification_settings_json TEXT NOT NULL DEFAULT '{"notifyAutoSave":true,"notifyStorageAlerts":true,"notifyShareAlerts":true,"notifyPrivacyRequests":true,"defaultDownloadFormat":"docx"}',
       created_at TEXT NOT NULL,
@@ -67,7 +144,7 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
       page_doodle_json TEXT NOT NULL DEFAULT '{"strokes":[],"dataUrl":""}',
       page_settings_json TEXT NOT NULL DEFAULT '{"orientation":"portrait","margins":"normal","pageColor":"#ffffff"}',
       word_count INTEGER NOT NULL DEFAULT 0,
-      size_bytes INTEGER NOT NULL DEFAULT 0,
+      size_bytes ${int64Type} NOT NULL DEFAULT 0,
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_deleted INTEGER NOT NULL DEFAULT 0,
       deleted_at TEXT,
@@ -131,57 +208,55 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_document_shares_target ON document_shares(shared_with_user_id);
   `);
 
-  ensureMigrations(db);
-  seedDefaultAdmin(db);
-  linkStudentsToAdmin(db);
+  await ensureMigrations(db);
+  await seedDefaultAdmin(db);
+  await linkStudentsToAdmin(db);
   return db;
 }
 
-function linkStudentsToAdmin(db) {
-  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get();
-  if (admin) {
-    db.prepare(
-      "UPDATE users SET managed_by_admin_id = ? WHERE role = 'student' AND managed_by_admin_id IS NULL"
-    ).run(admin.id);
+async function ensureMigrations(db) {
+  if (db.dialect === 'postgres') {
+    await db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));'
+    );
+    return;
   }
-}
 
-function ensureMigrations(db) {
-  const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  const userCols = new Set((await db.all('PRAGMA table_info(users)')).map((c) => c.name));
   if (!userCols.has('managed_by_admin_id')) {
-    db.exec('ALTER TABLE users ADD COLUMN managed_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL');
+    await db.exec(
+      'ALTER TABLE users ADD COLUMN managed_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL'
+    );
   }
   if (!userCols.has('notification_settings_json')) {
-    db.exec(
+    await db.exec(
       `ALTER TABLE users ADD COLUMN notification_settings_json TEXT NOT NULL DEFAULT '{"notifyAutoSave":true,"notifyStorageAlerts":true,"notifyShareAlerts":true,"notifyPrivacyRequests":true,"defaultDownloadFormat":"docx"}'`
     );
   }
 
-  const docCols = new Set(db.prepare('PRAGMA table_info(documents)').all().map((c) => c.name));
+  const docCols = new Set((await db.all('PRAGMA table_info(documents)')).map((c) => c.name));
   if (!docCols.has('page_doodle_json')) {
-    db.exec(`ALTER TABLE documents ADD COLUMN page_doodle_json TEXT NOT NULL DEFAULT '{"strokes":[],"dataUrl":""}'`);
+    await db.exec(
+      `ALTER TABLE documents ADD COLUMN page_doodle_json TEXT NOT NULL DEFAULT '{"strokes":[],"dataUrl":""}'`
+    );
   }
   if (!docCols.has('is_favorite')) {
-    db.exec(`ALTER TABLE documents ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0`);
+    await db.exec('ALTER TABLE documents ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0');
   }
   if (!docCols.has('last_opened_at')) {
-    db.exec(`ALTER TABLE documents ADD COLUMN last_opened_at TEXT`);
+    await db.exec('ALTER TABLE documents ADD COLUMN last_opened_at TEXT');
   }
 }
 
-export function seedDefaultAdmin(db) {
-  const existingAdmin = db
-    .prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
-    .get();
-
+export async function seedDefaultAdmin(db) {
+  const existingAdmin = await db.get("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
   if (!existingAdmin) {
     const now = new Date().toISOString();
-    db.prepare(
+    await db.run(
       `INSERT INTO users (
         id, email, password_hash, full_name, student_number, course_section,
         role, status, storage_quota_bytes, storage_used_bytes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, '', 'Pangasiwaan', 'admin', 'active', ?, 0, ?, ?)`
-    ).run(
+      ) VALUES (?, ?, ?, ?, '', 'Pangasiwaan', 'admin', 'active', ?, 0, ?, ?)`,
       crypto.randomUUID(),
       CONFIG.ADMIN_SEED_EMAIL,
       hashPassword(CONFIG.ADMIN_SEED_PASSWORD),
@@ -193,11 +268,20 @@ export function seedDefaultAdmin(db) {
   }
 }
 
-export function logAudit(db, { actorId, targetUserId, action, details = '' }) {
-  db.prepare(
+async function linkStudentsToAdmin(db) {
+  const admin = await db.get("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+  if (admin) {
+    await db.run(
+      "UPDATE users SET managed_by_admin_id = ? WHERE role = 'student' AND managed_by_admin_id IS NULL",
+      admin.id
+    );
+  }
+}
+
+export async function logAudit(db, { actorId, targetUserId, action, details = '' }) {
+  await db.run(
     `INSERT INTO audit_logs (id, actor_id, target_user_id, action, details, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?)`,
     crypto.randomUUID(),
     actorId || null,
     targetUserId || null,

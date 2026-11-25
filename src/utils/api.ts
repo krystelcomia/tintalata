@@ -39,7 +39,16 @@ export async function apiRequest<T>(
       res.status === 404
         ? 'Hindi maabot ang API server (Code 404). Tiyaking pinapatakbo ang app gamit ang "npm run dev", "npm run preview", o "npm start".'
         : `Nagkaroon ng problema sa koneksyon sa server (Code ${res.status}). Pakisubukang muli.`;
-    throw new ApiError(res.status, data?.error || fallback);
+    const errMsg = data?.error || fallback;
+    const isPublicAuthCall =
+      path.startsWith('/api/auth/login') ||
+      path.startsWith('/api/auth/register') ||
+      path.startsWith('/api/auth/forgot-password') ||
+      path.startsWith('/api/auth/me');
+    if (res.status === 401 && !isPublicAuthCall) {
+      window.dispatchEvent(new CustomEvent('tintalata:unauthorized', { detail: errMsg }));
+    }
+    throw new ApiError(res.status, errMsg);
   }
   return data as T;
 }
@@ -52,7 +61,11 @@ export async function triggerDownload(url: string, fallbackFilename: string, sup
   const res = await fetch(url, { credentials: 'include', headers });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, data?.error || 'Nabigo ang pag-download ng file.');
+    const errMsg = data?.error || 'Nabigo ang pag-download ng file.';
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent('tintalata:unauthorized', { detail: errMsg }));
+    }
+    throw new ApiError(res.status, errMsg);
   }
   const blob = await res.blob();
   const disposition = res.headers.get('Content-Disposition') || '';

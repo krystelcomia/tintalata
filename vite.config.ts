@@ -7,7 +7,7 @@ async function attachEmbeddedApi(middlewares: Connect.Server, httpServer: Server
   if (process.env.TINTALATA_PROXY_API === '1') return;
   const { createDatabase } = await import('./server/db.mjs');
   const { createApp } = await import('./server/app.mjs');
-  const db = createDatabase();
+  const db = await createDatabase();
   const apiApp = createApp(db, { serveStatic: false });
 
   middlewares.use((req, res, next) => {
@@ -18,11 +18,7 @@ async function attachEmbeddedApi(middlewares: Connect.Server, httpServer: Server
   });
 
   httpServer?.once('close', () => {
-    try {
-      db.close();
-    } catch {
-      // ignore
-    }
+    void db.close().catch(() => {});
   });
 }
 

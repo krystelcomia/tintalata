@@ -58,6 +58,7 @@ export function AdminDashboard({
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
+  const [storageMode, setStorageMode] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'inactive'>(
@@ -105,16 +106,18 @@ export function AdminDashboard({
       if (search.trim()) params.set('search', search.trim());
       if (statusFilter !== 'all') params.set('status', statusFilter);
 
-      const [ovRes, stRes, logRes, rstRes] = await Promise.all([
+      const [ovRes, stRes, logRes, rstRes, hlthRes] = await Promise.all([
         apiRequest<{ overview: AdminOverview }>('/api/admin/overview'),
         apiRequest<{ students: AdminStudent[] }>(`/api/admin/students?${params.toString()}`),
         apiRequest<{ logs: AuditLogEntry[] }>('/api/admin/audit-logs'),
         apiRequest<{ requests: PasswordResetRequest[] }>('/api/admin/password-resets'),
+        apiRequest<{ storageMode?: string }>('/api/health').catch(() => ({ storageMode: '' })),
       ]);
       setOverview(ovRes.overview);
       setStudents(stRes.students);
       setAuditLogs(logRes.logs);
       setResetRequests(rstRes.requests);
+      setStorageMode(hlthRes.storageMode || '');
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : 'Hindi ma-load ang dashboard.');
     } finally {
@@ -494,6 +497,20 @@ export function AdminDashboard({
 
         {/* Full-Area Main Panel */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+          {storageMode === 'sqlite-ephemeral' && (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-950">
+              <p className="font-extrabold text-sm">
+                Paalala sa Cloud Database (Vercel Pansamantalang Storage)
+              </p>
+              <p className="mt-1 leading-relaxed">
+                Kasalukuyang gumagamit ng pansamantalang <code>/tmp</code> SQLite ang server na
+                ito. Upang hindi mabura ang mga account, password, at dokumento sa pagitan ng mga
+                Vercel instance, ikonekta ang isang PostgreSQL database (hal. Neon / Vercel
+                Postgres) at itakda ang <code>POSTGRES_URL</code> o <code>DATABASE_URL</code> at{' '}
+                <code>SESSION_SECRET</code> sa Vercel Environment Variables.
+              </p>
+            </div>
+          )}
           {section === 'overview' && (
             <>
               {overview && (

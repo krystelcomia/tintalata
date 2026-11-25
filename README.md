@@ -41,6 +41,14 @@ Pagsubok (*automated tests*):
 npm test
 ```
 
+## Pag-deploy sa Vercel (PostgreSQL Persistence)
+
+Kapag nag-deploy sa Vercel mula sa GitHub, pansamantala lamang ang `/tmp` storage kung walang nakakonektang cloud database. Upang permanenteng mai-save ang mga account, password, dokumento, at session sa buong Vercel:
+
+1. Sa iyong Vercel project, pumunta sa **Storage** at magdagdag ng **Neon Postgres** (o Supabase / anumang PostgreSQL database).
+2. Tiyaking nakalagay sa **Environment Variables** ang `POSTGRES_URL` (o `DATABASE_URL`) at isang matibay na `SESSION_SECRET` (hindi bababa sa 32 karakter).
+3. I-redeploy ang proyekto — awtomatikong gagawa ang Tintalata ng mga talahanayan at default Admin account sa PostgreSQL.
+
 ## Default na Admin Account (Para sa Pagsubok)
 
 - **Email:** `admin@tintalata.ph`

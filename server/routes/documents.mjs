@@ -9,6 +9,7 @@ import {
   recalculateUserStorage,
 } from '../utils/storage.mjs';
 import { buildDocumentExport } from '../utils/export.mjs';
+import { asyncHandler } from '../utils/http.mjs';
 
 function parseJsonSafe(raw, fallback) {
   try {
@@ -66,92 +67,98 @@ function formatDocumentFull(row) {
 export function createDocumentsRouter(db) {
   const router = express.Router();
 
-  router.get('/', requireAuth, resolveWorkspaceAccess(db), (req, res) => {
-    const ownerId = req.workspace.ownerId;
-    const { folderId, search, favoritesOnly } = req.query;
+  router.get(
+    '/',
+    requireAuth,
+    resolveWorkspaceAccess(db),
+    asyncHandler(async (req, res) => {
+      const ownerId = req.workspace.ownerId;
+      const { folderId, search, favoritesOnly } = req.query;
 
-    let sql = `
-      SELECT d.*, f.name AS folder_name
-      FROM documents d
-      LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
-      WHERE d.user_id = ? AND d.is_deleted = 0
-    `;
-    const params = [ownerId];
+      let sql = `
+        SELECT d.*, f.name AS folder_name
+        FROM documents d
+        LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
+        WHERE d.user_id = ? AND d.is_deleted = 0
+      `;
+      const params = [ownerId];
 
-    if (folderId === 'root') {
-      sql += ' AND d.folder_id IS NULL';
-    } else if (folderId && typeof folderId === 'string') {
-      sql += ' AND d.folder_id = ?';
-      params.push(folderId);
-    }
+      if (folderId === 'root') {
+        sql += ' AND d.folder_id IS NULL';
+      } else if (folderId && typeof folderId === 'string') {
+        sql += ' AND d.folder_id = ?';
+        params.push(folderId);
+      }
 
-    if (favoritesOnly === '1' || favoritesOnly === 'true') {
-      sql += ' AND d.is_favorite = 1';
-    }
+      if (favoritesOnly === '1' || favoritesOnly === 'true') {
+        sql += ' AND d.is_favorite = 1';
+      }
 
-    if (search && typeof search === 'string' && search.trim()) {
-      const term = `%${search.trim()}%`;
-      sql += ' AND (d.title LIKE ? OR d.content_html LIKE ?)';
-      params.push(term, term);
-    }
+      if (search && typeof search === 'string' && search.trim()) {
+        const term = `%${search.trim().toLowerCase()}%`;
+        sql += ' AND (LOWER(d.title) LIKE ? OR LOWER(d.content_html) LIKE ?)';
+        params.push(term, term);
+      }
 
-    sql += ' ORDER BY d.updated_at DESC';
+      sql += ' ORDER BY d.updated_at DESC';
 
-    const rows = db.prepare(sql).all(...params);
-    return res.json({
-      documents: rows.map(formatDocumentSummary),
-    });
-  });
+      const rows = await db.all(sql, ...params);
+      return res.json({
+        documents: rows.map(formatDocumentSummary),
+      });
+    })
+  );
 
-  // Documents shared with the currently logged-in student by other students
-  router.get('/shared/list', requireAuth, (req, res) => {
-    if (req.user.role !== 'student') {
-      return res.json({ sharedWithMe: [], sharedByMe: [] });
-    }
+  router.get(
+    '/shared/list',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      if (req.user.role !== 'student') {
+        return res.json({ sharedWithMe: [], sharedByMe: [] });
+      }
 
-    const sharedWithMe = db
-      .prepare(
+      const sharedWithMe = await db.all(
         `SELECT d.*, NULL AS folder_name, s.permission_level AS shared_role,
                 u.full_name AS owner_name, u.email AS owner_email
          FROM document_shares s
          JOIN documents d ON d.id = s.document_id
          JOIN users u ON u.id = s.owner_id
          WHERE s.shared_with_user_id = ? AND d.is_deleted = 0 AND u.status = 'active'
-         ORDER BY d.updated_at DESC`
-      )
-      .all(req.user.id);
+         ORDER BY d.updated_at DESC`,
+        req.user.id
+      );
 
-    const sharedByMe = db
-      .prepare(
+      const sharedByMe = await db.all(
         `SELECT s.id AS share_id, s.document_id, s.permission_level, s.created_at AS shared_at,
                 d.title, u.full_name AS recipient_name, u.email AS recipient_email
          FROM document_shares s
          JOIN documents d ON d.id = s.document_id
          JOIN users u ON u.id = s.shared_with_user_id
          WHERE s.owner_id = ? AND d.is_deleted = 0
-         ORDER BY s.created_at DESC`
-      )
-      .all(req.user.id);
+         ORDER BY s.created_at DESC`,
+        req.user.id
+      );
 
-    return res.json({
-      sharedWithMe: sharedWithMe.map(formatDocumentSummary),
-      sharedByMe: sharedByMe.map((r) => ({
-        shareId: r.share_id,
-        documentId: r.document_id,
-        title: r.title,
-        permissionLevel: r.permission_level,
-        recipientName: r.recipient_name,
-        recipientEmail: r.recipient_email,
-        sharedAt: r.shared_at,
-      })),
-    });
-  });
+      return res.json({
+        sharedWithMe: sharedWithMe.map(formatDocumentSummary),
+        sharedByMe: sharedByMe.map((r) => ({
+          shareId: r.share_id,
+          documentId: r.document_id,
+          title: r.title,
+          permissionLevel: r.permission_level,
+          recipientName: r.recipient_name,
+          recipientEmail: r.recipient_email,
+          sharedAt: r.shared_at,
+        })),
+      });
+    })
+  );
 
   router.post(
     '/',
     requireAuth,
     resolveWorkspaceAccess(db, { requireWrite: true }),
-    (req, res) => {
+    asyncHandler(async (req, res) => {
       const ownerId = req.workspace.ownerId;
       const {
         title = 'Walang Pamagat na Dokumento',
@@ -186,9 +193,11 @@ export function createDocumentsRouter(db) {
 
       let resolvedFolderId = null;
       if (folderId) {
-        const folder = db
-          .prepare('SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0')
-          .get(folderId, ownerId);
+        const folder = await db.get(
+          'SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0',
+          folderId,
+          ownerId
+        );
         if (!folder) {
           return res.status(404).json({ error: 'Hindi natagpuan ang napiling folder.' });
         }
@@ -203,7 +212,7 @@ export function createDocumentsRouter(db) {
         pageSettingsJson,
       });
 
-      const quota = checkStorageQuota(db, ownerId, sizeBytes, 0);
+      const quota = await checkStorageQuota(db, ownerId, sizeBytes, 0);
       if (!quota.allowed) {
         return res.status(413).json({
           error:
@@ -215,12 +224,11 @@ export function createDocumentsRouter(db) {
       const now = new Date().toISOString();
       const words = countWords(cleanHtml);
 
-      db.prepare(
+      await db.run(
         `INSERT INTO documents (
           id, user_id, folder_id, title, content_html, doodles_json, page_doodle_json,
           page_settings_json, word_count, size_bytes, is_favorite, last_opened_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         ownerId,
         resolvedFolderId,
@@ -237,126 +245,137 @@ export function createDocumentsRouter(db) {
         now
       );
 
-      recalculateUserStorage(db, ownerId);
-      const created = db
-        .prepare(
-          `SELECT d.*, f.name AS folder_name
-           FROM documents d
-           LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
-           WHERE d.id = ?`
-        )
-        .get(id);
+      await recalculateUserStorage(db, ownerId);
+      const created = await db.get(
+        `SELECT d.*, f.name AS folder_name
+         FROM documents d
+         LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
+         WHERE d.id = ?`,
+        id
+      );
 
       return res.status(201).json({
         message: 'Nagawa na ang bagong dokumento.',
         document: formatDocumentFull(created),
-        storage: getStorageSummary(db, ownerId),
+        storage: await getStorageSummary(db, ownerId),
       });
-    }
+    })
   );
 
-  router.get('/:id', requireAuth, (req, res, next) => {
-    // Allow shared recipients (students) to open a document shared with them
-    if (req.user.role === 'student') {
-      const owned = db
-        .prepare(
+  router.get(
+    '/:id',
+    requireAuth,
+    asyncHandler(async (req, res, next) => {
+      if (req.user.role === 'student') {
+        const owned = await db.get(
           `SELECT d.*, f.name AS folder_name
            FROM documents d
            LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
-           WHERE d.id = ? AND d.user_id = ? AND d.is_deleted = 0`
-        )
-        .get(req.params.id, req.user.id);
+           WHERE d.id = ? AND d.user_id = ? AND d.is_deleted = 0`,
+          req.params.id,
+          req.user.id
+        );
 
-      if (owned) {
-        const now = new Date().toISOString();
-        db.prepare('UPDATE documents SET last_opened_at = ? WHERE id = ?').run(now, owned.id);
-        owned.last_opened_at = now;
-        return res.json({
-          document: formatDocumentFull(owned),
-          permission: 'read_write',
-        });
-      }
+        if (owned) {
+          const now = new Date().toISOString();
+          await db.run('UPDATE documents SET last_opened_at = ? WHERE id = ?', now, owned.id);
+          owned.last_opened_at = now;
+          return res.json({
+            document: formatDocumentFull(owned),
+            permission: 'read_write',
+          });
+        }
 
-      const shared = db
-        .prepare(
+        const shared = await db.get(
           `SELECT d.*, NULL AS folder_name, s.permission_level AS shared_role,
                   u.full_name AS owner_name, u.email AS owner_email
            FROM document_shares s
            JOIN documents d ON d.id = s.document_id
            JOIN users u ON u.id = s.owner_id
-           WHERE s.document_id = ? AND s.shared_with_user_id = ? AND d.is_deleted = 0`
-        )
-        .get(req.params.id, req.user.id);
+           WHERE s.document_id = ? AND s.shared_with_user_id = ? AND d.is_deleted = 0`,
+          req.params.id,
+          req.user.id
+        );
 
-      if (shared) {
-        return res.json({
-          document: formatDocumentFull(shared),
-          permission: shared.shared_role,
-        });
+        if (shared) {
+          return res.json({
+            document: formatDocumentFull(shared),
+            permission: shared.shared_role,
+          });
+        }
+        return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
       }
-      return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
-    }
-    return next();
-  }, resolveWorkspaceAccess(db), (req, res) => {
-    const ownerId = req.workspace.ownerId;
-    const row = db
-      .prepare(
+      return next();
+    }),
+    resolveWorkspaceAccess(db),
+    asyncHandler(async (req, res) => {
+      const ownerId = req.workspace.ownerId;
+      const row = await db.get(
         `SELECT d.*, f.name AS folder_name
          FROM documents d
          LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
-         WHERE d.id = ? AND d.user_id = ? AND d.is_deleted = 0`
-      )
-      .get(req.params.id, ownerId);
+         WHERE d.id = ? AND d.user_id = ? AND d.is_deleted = 0`,
+        req.params.id,
+        ownerId
+      );
 
-    if (!row) {
-      return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
-    }
+      if (!row) {
+        return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
+      }
 
-    return res.json({
-      document: formatDocumentFull(row),
-      permission: req.workspace.permission,
-    });
-  });
+      return res.json({
+        document: formatDocumentFull(row),
+        permission: req.workspace.permission,
+      });
+    })
+  );
 
   router.patch(
     '/:id',
     requireAuth,
-    (req, res, next) => {
-      // Allow students with shared read_write permission to edit shared documents
+    asyncHandler(async (req, res, next) => {
       if (req.user.role === 'student') {
-        const owned = db
-          .prepare('SELECT id FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0')
-          .get(req.params.id, req.user.id);
+        const owned = await db.get(
+          'SELECT id FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0',
+          req.params.id,
+          req.user.id
+        );
         if (owned) {
           req.workspace = { ownerId: req.user.id, permission: 'read_write', isSharedEdit: false };
           return next();
         }
-        const shared = db
-          .prepare(
-            `SELECT s.owner_id, s.permission_level
-             FROM document_shares s
-             JOIN documents d ON d.id = s.document_id
-             WHERE s.document_id = ? AND s.shared_with_user_id = ? AND d.is_deleted = 0`
-          )
-          .get(req.params.id, req.user.id);
+        const shared = await db.get(
+          `SELECT s.owner_id, s.permission_level
+           FROM document_shares s
+           JOIN documents d ON d.id = s.document_id
+           WHERE s.document_id = ? AND s.shared_with_user_id = ? AND d.is_deleted = 0`,
+          req.params.id,
+          req.user.id
+        );
         if (shared) {
           if (shared.permission_level !== 'read_write') {
             return res.status(403).json({
               error: 'Basahin lamang ang pahintulot sa ibinahaging dokumentong ito.',
             });
           }
-          req.workspace = { ownerId: shared.owner_id, permission: 'read_write', isSharedEdit: true };
+          req.workspace = {
+            ownerId: shared.owner_id,
+            permission: 'read_write',
+            isSharedEdit: true,
+          };
           return next();
         }
         return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
       }
       return resolveWorkspaceAccess(db, { requireWrite: true })(req, res, next);
-    },
-    (req, res) => {
+    }),
+    asyncHandler(async (req, res) => {
       const ownerId = req.workspace.ownerId;
-      const existing = db
-        .prepare('SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0')
-        .get(req.params.id, ownerId);
+      const existing = await db.get(
+        'SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        ownerId
+      );
 
       if (!existing) {
         return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
@@ -416,9 +435,11 @@ export function createDocumentsRouter(db) {
         if (folderId === null || folderId === '') {
           nextFolderId = null;
         } else {
-          const targetFolder = db
-            .prepare('SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0')
-            .get(folderId, ownerId);
+          const targetFolder = await db.get(
+            'SELECT id FROM folders WHERE id = ? AND user_id = ? AND is_deleted = 0',
+            folderId,
+            ownerId
+          );
           if (!targetFolder) {
             return res.status(404).json({ error: 'Hindi natagpuan ang napiling folder.' });
           }
@@ -434,7 +455,7 @@ export function createDocumentsRouter(db) {
         pageSettingsJson: nextPageSettingsJson,
       });
 
-      const quota = checkStorageQuota(db, ownerId, newBytes, existing.size_bytes);
+      const quota = await checkStorageQuota(db, ownerId, newBytes, existing.size_bytes);
       if (!quota.allowed) {
         return res.status(413).json({
           error:
@@ -445,13 +466,12 @@ export function createDocumentsRouter(db) {
       const words = countWords(nextHtml);
       const now = new Date().toISOString();
 
-      db.prepare(
+      await db.run(
         `UPDATE documents
          SET title = ?, folder_id = ?, content_html = ?, doodles_json = ?,
              page_doodle_json = ?, page_settings_json = ?, word_count = ?,
              size_bytes = ?, is_favorite = ?, updated_at = ?
-         WHERE id = ? AND user_id = ?`
-      ).run(
+         WHERE id = ? AND user_id = ?`,
         nextTitle,
         nextFolderId,
         nextHtml,
@@ -466,194 +486,236 @@ export function createDocumentsRouter(db) {
         ownerId
       );
 
-      recalculateUserStorage(db, ownerId);
-      const updated = db
-        .prepare(
-          `SELECT d.*, f.name AS folder_name
-           FROM documents d
-           LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
-           WHERE d.id = ?`
-        )
-        .get(existing.id);
+      await recalculateUserStorage(db, ownerId);
+      const updated = await db.get(
+        `SELECT d.*, f.name AS folder_name
+         FROM documents d
+         LEFT JOIN folders f ON f.id = d.folder_id AND f.is_deleted = 0
+         WHERE d.id = ?`,
+        existing.id
+      );
 
       return res.json({
         message: 'Nai-save na ang dokumento.',
         document: formatDocumentFull(updated),
-        storage: getStorageSummary(db, req.user.role === 'student' ? req.user.id : ownerId),
+        storage: await getStorageSummary(db, req.user.role === 'student' ? req.user.id : ownerId),
       });
-    }
+    })
   );
 
-  // Share management (owner student only)
-  router.get('/:id/shares', requireAuth, (req, res) => {
-    const owned = db
-      .prepare('SELECT id FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0')
-      .get(req.params.id, req.user.id);
-    if (!owned) {
-      return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
-    }
-    const shares = db
-      .prepare(
+  router.get(
+    '/:id/shares',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const owned = await db.get(
+        'SELECT id FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        req.user.id
+      );
+      if (!owned) {
+        return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
+      }
+      const shares = await db.all(
         `SELECT s.id, s.permission_level, s.created_at, u.full_name, u.email
          FROM document_shares s
          JOIN users u ON u.id = s.shared_with_user_id
          WHERE s.document_id = ?
-         ORDER BY s.created_at DESC`
-      )
-      .all(owned.id);
-
-    return res.json({
-      shares: shares.map((s) => ({
-        id: s.id,
-        permissionLevel: s.permission_level,
-        recipientName: s.full_name,
-        recipientEmail: s.email,
-        createdAt: s.created_at,
-      })),
-    });
-  });
-
-  router.post('/:id/share', requireAuth, (req, res) => {
-    if (req.user.role !== 'student') {
-      return res.status(403).json({ error: 'Mga mag-aaral lamang ang maaaring magbahagi.' });
-    }
-    const owned = db
-      .prepare('SELECT id, title FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0')
-      .get(req.params.id, req.user.id);
-    if (!owned) {
-      return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
-    }
-
-    const { email = '', permissionLevel = 'read' } = req.body || {};
-    const targetEmail = String(email).trim().toLowerCase();
-    if (!targetEmail) {
-      return res.status(400).json({ error: 'Ilagay ang email ng mag-aaral na pagbabahagian.' });
-    }
-    if (!['read', 'read_write'].includes(permissionLevel)) {
-      return res.status(400).json({ error: 'Hindi wastong antas ng pahintulot.' });
-    }
-
-    const recipient = db
-      .prepare("SELECT id, full_name, email FROM users WHERE email = ? AND role = 'student' AND status = 'active'")
-      .get(targetEmail);
-    if (!recipient) {
-      return res.status(404).json({
-        error: 'Walang aktibong account ng mag-aaral na may ganyang email address.',
-      });
-    }
-    if (recipient.id === req.user.id) {
-      return res.status(400).json({
-        error: 'Hindi mo maaaring ibahagi ang dokumento sa sarili mong account.',
-      });
-    }
-
-    const now = new Date().toISOString();
-    const existingShare = db
-      .prepare('SELECT id FROM document_shares WHERE document_id = ? AND shared_with_user_id = ?')
-      .get(owned.id, recipient.id);
-
-    if (existingShare) {
-      db.prepare('UPDATE document_shares SET permission_level = ? WHERE id = ?').run(
-        permissionLevel,
-        existingShare.id
+         ORDER BY s.created_at DESC`,
+        owned.id
       );
-    } else {
-      db.prepare(
-        `INSERT INTO document_shares (id, document_id, owner_id, shared_with_user_id, permission_level, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(crypto.randomUUID(), owned.id, req.user.id, recipient.id, permissionLevel, now);
-    }
 
-    return res.status(201).json({
-      message: `Naibahagi ang "${owned.title}" kay ${recipient.full_name}.`,
-    });
-  });
+      return res.json({
+        shares: shares.map((s) => ({
+          id: s.id,
+          permissionLevel: s.permission_level,
+          recipientName: s.full_name,
+          recipientEmail: s.email,
+          createdAt: s.created_at,
+        })),
+      });
+    })
+  );
 
-  router.delete('/:id/shares/:shareId', requireAuth, (req, res) => {
-    const deleted = db
-      .prepare('DELETE FROM document_shares WHERE id = ? AND document_id = ? AND owner_id = ?')
-      .run(req.params.shareId, req.params.id, req.user.id);
-    if (!deleted.changes) {
-      return res.status(404).json({ error: 'Hindi natagpuan ang pagbabahaging ito.' });
-    }
-    return res.json({ message: 'Inalis na ang pagbabahagi ng dokumento.' });
-  });
+  router.post(
+    '/:id/share',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      if (req.user.role !== 'student') {
+        return res.status(403).json({ error: 'Mga mag-aaral lamang ang maaaring magbahagi.' });
+      }
+      const owned = await db.get(
+        'SELECT id, title FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        req.user.id
+      );
+      if (!owned) {
+        return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
+      }
 
-  router.get('/:id/download', requireAuth, async (req, res, next) => {
-    if (req.user.role === 'student') {
-      const owned = db
-        .prepare('SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0')
-        .get(req.params.id, req.user.id);
-      const shared =
-        owned ||
-        db
-          .prepare(
+      const { email = '', permissionLevel = 'read' } = req.body || {};
+      const targetEmail = String(email).trim().toLowerCase();
+      if (!targetEmail) {
+        return res.status(400).json({ error: 'Ilagay ang email ng mag-aaral na pagbabahagian.' });
+      }
+      if (!['read', 'read_write'].includes(permissionLevel)) {
+        return res.status(400).json({ error: 'Hindi wastong antas ng pahintulot.' });
+      }
+
+      const recipient = await db.get(
+        "SELECT id, full_name, email FROM users WHERE LOWER(email) = ? AND role = 'student' AND status = 'active'",
+        targetEmail
+      );
+      if (!recipient) {
+        return res.status(404).json({
+          error: 'Walang aktibong account ng mag-aaral na may ganyang email address.',
+        });
+      }
+      if (recipient.id === req.user.id) {
+        return res.status(400).json({
+          error: 'Hindi mo maaaring ibahagi ang dokumento sa sarili mong account.',
+        });
+      }
+
+      const now = new Date().toISOString();
+      const existingShare = await db.get(
+        'SELECT id FROM document_shares WHERE document_id = ? AND shared_with_user_id = ?',
+        owned.id,
+        recipient.id
+      );
+
+      if (existingShare) {
+        await db.run(
+          'UPDATE document_shares SET permission_level = ? WHERE id = ?',
+          permissionLevel,
+          existingShare.id
+        );
+      } else {
+        await db.run(
+          `INSERT INTO document_shares (id, document_id, owner_id, shared_with_user_id, permission_level, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          crypto.randomUUID(),
+          owned.id,
+          req.user.id,
+          recipient.id,
+          permissionLevel,
+          now
+        );
+      }
+
+      return res.status(201).json({
+        message: `Naibahagi ang "${owned.title}" kay ${recipient.full_name}.`,
+      });
+    })
+  );
+
+  router.delete(
+    '/:id/shares/:shareId',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const deleted = await db.run(
+        'DELETE FROM document_shares WHERE id = ? AND document_id = ? AND owner_id = ?',
+        req.params.shareId,
+        req.params.id,
+        req.user.id
+      );
+      if (!deleted.changes) {
+        return res.status(404).json({ error: 'Hindi natagpuan ang pagbabahaging ito.' });
+      }
+      return res.json({ message: 'Inalis na ang pagbabahagi ng dokumento.' });
+    })
+  );
+
+  router.get(
+    '/:id/download',
+    requireAuth,
+    asyncHandler(async (req, res, next) => {
+      if (req.user.role === 'student') {
+        const owned = await db.get(
+          'SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0',
+          req.params.id,
+          req.user.id
+        );
+        const shared =
+          owned ||
+          (await db.get(
             `SELECT d.*
              FROM document_shares s
              JOIN documents d ON d.id = s.document_id
-             WHERE s.document_id = ? AND s.shared_with_user_id = ? AND d.is_deleted = 0`
-          )
-          .get(req.params.id, req.user.id);
-      if (!shared) {
+             WHERE s.document_id = ? AND s.shared_with_user_id = ? AND d.is_deleted = 0`,
+            req.params.id,
+            req.user.id
+          ));
+        if (!shared) {
+          return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
+        }
+        const format = req.query.format || 'docx';
+        const { filename, contentType, buffer } = await buildDocumentExport(shared, format);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+        );
+        return res.send(buffer);
+      }
+      return next();
+    }),
+    resolveWorkspaceAccess(db),
+    asyncHandler(async (req, res) => {
+      const ownerId = req.workspace.ownerId;
+      const row = await db.get(
+        'SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        ownerId
+      );
+
+      if (!row) {
         return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
       }
+
       const format = req.query.format || 'docx';
-      const { filename, contentType, buffer } = await buildDocumentExport(shared, format);
+      const { filename, contentType, buffer } = await buildDocumentExport(row, format);
+
       res.setHeader('Content-Type', contentType);
       res.setHeader(
         'Content-Disposition',
         `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
       );
       return res.send(buffer);
-    }
-    return next();
-  }, resolveWorkspaceAccess(db), async (req, res) => {
-    const ownerId = req.workspace.ownerId;
-    const row = db
-      .prepare('SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0')
-      .get(req.params.id, ownerId);
-
-    if (!row) {
-      return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
-    }
-
-    const format = req.query.format || 'docx';
-    const { filename, contentType, buffer } = await buildDocumentExport(row, format);
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
-    );
-    return res.send(buffer);
-  });
+    })
+  );
 
   router.delete(
     '/:id',
     requireAuth,
     resolveWorkspaceAccess(db, { requireWrite: true }),
-    (req, res) => {
+    asyncHandler(async (req, res) => {
       const ownerId = req.workspace.ownerId;
-      const existing = db
-        .prepare('SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0')
-        .get(req.params.id, ownerId);
+      const existing = await db.get(
+        'SELECT * FROM documents WHERE id = ? AND user_id = ? AND is_deleted = 0',
+        req.params.id,
+        ownerId
+      );
 
       if (!existing) {
         return res.status(404).json({ error: 'Hindi natagpuan ang dokumento.' });
       }
 
       const now = new Date().toISOString();
-      db.prepare(
+      await db.run(
         `UPDATE documents
          SET is_deleted = 1, deleted_at = ?, deleted_with_folder_id = NULL, updated_at = ?
-         WHERE id = ? AND user_id = ?`
-      ).run(now, now, existing.id, ownerId);
+         WHERE id = ? AND user_id = ?`,
+        now,
+        now,
+        existing.id,
+        ownerId
+      );
 
       return res.json({
         message: `Nailipat sa Basurahan ang dokumentong "${existing.title}".`,
-        storage: getStorageSummary(db, ownerId),
+        storage: await getStorageSummary(db, ownerId),
       });
-    }
+    })
   );
 
   return router;

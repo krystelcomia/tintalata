@@ -76,6 +76,24 @@ export function App() {
       .finally(() => setBootstrapping(false));
   }, []);
 
+  // If the server invalidates or loses an active session (e.g. session expiry or ephemeral cloud reset),
+  // clear client state cleanly and return to /login instead of showing dead dashboard controls.
+  useEffect(() => {
+    const onUnauthorized = (ev: Event) => {
+      const detail = (ev as CustomEvent<string>).detail;
+      setUser(null);
+      setStorage(null);
+      setSupportStudent(null);
+      notify(
+        'error',
+        detail || 'Nag-expire ang iyong sesyon. Mangyaring mag-log in muli upang magpatuloy.'
+      );
+      navigate('/login', { replace: true });
+    };
+    window.addEventListener('tintalata:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('tintalata:unauthorized', onUnauthorized);
+  }, [navigate, notify]);
+
   // Strict route & role guard with automatic redirection
   useEffect(() => {
     if (bootstrapping) return;

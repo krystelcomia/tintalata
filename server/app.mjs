@@ -27,7 +27,12 @@ export function createApp(db, { serveStatic = true } = {}) {
   app.use(attachAuth(db));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, app: 'Tintalata', language: 'tl' });
+    res.json({
+      ok: true,
+      app: 'Tintalata',
+      language: 'tl',
+      storageMode: db.storageMode || CONFIG.STORAGE_MODE,
+    });
   });
 
   app.use('/api/auth', createAuthRouter(db));
@@ -42,7 +47,6 @@ export function createApp(db, { serveStatic = true } = {}) {
     res.status(404).json({ error: 'Hindi natagpuan ang hinihiling na API endpoint.' });
   });
 
-  // Error handler (including payload too large)
   app.use((err, _req, res, _next) => {
     if (err?.type === 'entity.too.large') {
       return res.status(413).json({

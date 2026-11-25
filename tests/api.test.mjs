@@ -6,8 +6,8 @@ import { createDatabase } from '../server/db.mjs';
 import { createApp } from '../server/app.mjs';
 import { CONFIG } from '../server/config.mjs';
 
-function startTestServer() {
-  const db = createDatabase(':memory:');
+async function startTestServer() {
+  const db = await createDatabase(':memory:');
   const app = createApp(db, { serveStatic: false });
   const server = http.createServer(app);
   return new Promise((resolve) => {
@@ -59,9 +59,9 @@ class CookieClient {
 
 test('Tintalata full API, privacy, storage, trash, export, and admin authorization suite', async (t) => {
   const { db, server, baseUrl } = await startTestServer();
-  t.after(() => {
+  t.after(async () => {
     server.close();
-    db.close();
+    await db.close();
   });
 
   const studentA = new CookieClient(baseUrl);
@@ -458,9 +458,10 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   });
   assert.equal(adminCreateStudent.status, 201);
 
-  const dbRow = db
-    .prepare('SELECT managed_by_admin_id FROM users WHERE email = ?')
-    .get('ana.santos@paaralan.ph');
+  const dbRow = await db.get(
+    'SELECT managed_by_admin_id FROM users WHERE email = ?',
+    'ana.santos@paaralan.ph'
+  );
   assert.ok(dbRow?.managed_by_admin_id);
 
   const allStudentsAfter = await admin.request('/api/admin/students');
