@@ -1,8 +1,10 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import { CONFIG } from '../config.mjs';
 import { requireAuth, requireRole } from '../middleware/auth.mjs';
 import { getStorageSummary } from '../utils/storage.mjs';
 import { hashPassword } from '../utils/crypto.mjs';
+import { createStudentAccount } from '../utils/accounts.mjs';
 import { logAudit } from '../db.mjs';
 
 function expireStaleGrants(db) {
@@ -165,6 +167,45 @@ export function createAdminRouter(db) {
         lastLoginAt: r.last_login_at,
         authorization: getLatestGrantStatus(db, r.id),
       })),
+    });
+  });
+
+  // Allow Admin to directly create a student account saved in DB and linked to the Admin account
+  router.post('/students', (req, res) => {
+    const {
+      fullName = '',
+      email = '',
+      password = '',
+      studentNumber = '',
+      courseSection = '',
+      storageQuotaMB = 50,
+    } = req.body || {};
+
+    const mb = Number(storageQuotaMB || 50);
+    if (!Number.isFinite(mb) || mb < 1 || mb > 10240) {
+      return res.status(400).json({
+        error: 'Ang kapasidad ng storage ay dapat nasa pagitan ng 1 MB at 10,240 MB.',
+      });
+    }
+
+    const result = createStudentAccount(db, {
+      fullName,
+      email,
+      password,
+      studentNumber,
+      courseSection,
+      storageQuotaBytes: Math.round(mb * 1024 * 1024) || CONFIG.DEFAULT_STORAGE_QUOTA_BYTES,
+      createdByAdminId: req.user.id,
+      markLoggedInNow: false,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
+    }
+
+    return res.status(201).json({
+      message: `Matagumpay na naidagdag ang account ni ${result.user.full_name} at maaari na itong mag-log in.`,
+      studentId: result.user.id,
     });
   });
 

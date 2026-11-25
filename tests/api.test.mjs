@@ -443,4 +443,39 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
     }),
   });
   assert.equal(loginWithNewPass.status, 200);
+
+  // 12. Admin creates a student account directly -> saved in DB linked to Admin -> visible in Admin list -> student logs in via /api/auth/login
+  const adminCreateStudent = await admin.request('/api/admin/students', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Ana Santos',
+      email: 'ana.santos@paaralan.ph',
+      studentNumber: '2026-0888',
+      courseSection: 'BSIS 2-B',
+      password: 'AnaPassword88',
+      storageQuotaMB: 75,
+    }),
+  });
+  assert.equal(adminCreateStudent.status, 201);
+
+  const dbRow = db
+    .prepare('SELECT managed_by_admin_id FROM users WHERE email = ?')
+    .get('ana.santos@paaralan.ph');
+  assert.ok(dbRow?.managed_by_admin_id);
+
+  const allStudentsAfter = await admin.request('/api/admin/students');
+  assert.ok(allStudentsAfter.body.students.some((s) => s.email === 'ana.santos@paaralan.ph'));
+  assert.ok(allStudentsAfter.body.students.some((s) => s.email === 'krystel@paaralan.ph'));
+
+  const studentD = new CookieClient(baseUrl);
+  const studentDLogin = await studentD.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'ana.santos@paaralan.ph',
+      password: 'AnaPassword88',
+    }),
+  });
+  assert.equal(studentDLogin.status, 200);
+  assert.equal(studentDLogin.body.user.role, 'student');
+  assert.equal(studentDLogin.body.storage.quotaMB, 75);
 });

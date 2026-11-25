@@ -2,16 +2,14 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.mjs';
 import { hashPassword, verifyPassword, generateSessionToken } from '../utils/crypto.mjs';
-import { calculateDocumentBytes, getStorageSummary, recalculateUserStorage } from '../utils/storage.mjs';
-import { countWords } from '../utils/sanitize.mjs';
+import { getStorageSummary } from '../utils/storage.mjs';
+import { createStudentAccount, EMAIL_RE } from '../utils/accounts.mjs';
 import {
   clearSessionCookie,
   requireAuth,
   setSessionCookie,
 } from '../middleware/auth.mjs';
 import { logAudit } from '../db.mjs';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const DEFAULT_NOTIFICATION_SETTINGS = {
   notifyAutoSave: true,
@@ -46,51 +44,6 @@ function sanitizeUserPayload(row) {
   };
 }
 
-function createStarterWorkspace(db, userId, fullName) {
-  const now = new Date().toISOString();
-  const folderId = crypto.randomUUID();
-  db.prepare(
-    `INSERT INTO folders (id, user_id, parent_id, name, color, icon, created_at, updated_at)
-     VALUES (?, ?, NULL, ?, 'blue', 'book', ?, ?)`
-  ).run(folderId, userId, 'Mga Tala sa Klase', now, now);
-
-  const welcomeTitle = 'Maligayang Pagdating sa Tintalata';
-  const welcomeHtml = `<h1>Maligayang Pagdating, ${fullName.replace(/[<>&"]/g, '')}!</h1><p>Ito ang iyong pribadong espasyo sa <strong>Tintalata</strong> — isang modernong patnugot ng dokumento at guhit sa wikang Filipino.</p><h2>Mga Maaari Mong Gawin:</h2><ul><li><strong>Sumulat at Mag-format:</strong> Gamitin ang toolbar sa itaas upang pumili ng font, laki, kulay, pagkakahanay, mga talaan, at higit pa.</li><li><strong>Gumuhit ng Doodle:</strong> Pindutin ang <em>Gumuhit / Doodle</em> upang gumawa ng malayang guhit at ilagay ito mismo sa iyong dokumento.</li><li><strong>Ayusin sa mga Folder:</strong> Gumawa ng mga nako-customize na folder na may iba't ibang kulay at icon.</li><li><strong>Mag-download at Pamahalaan ang Storage:</strong> Maaaring i-download ang bawat dokumento o buong folder bilang ZIP, at bantayan ang iyong storage sa MB.</li></ul><blockquote>Paalala: Ligtas at pribado ang lahat ng iyong mga file. Walang ibang makakakita nito nang wala ang iyong pahintulot.</blockquote>`;
-  const doodlesJson = '[]';
-  const pageSettingsJson = JSON.stringify({
-    orientation: 'portrait',
-    margins: 'normal',
-    pageColor: '#ffffff',
-  });
-  const sizeBytes = calculateDocumentBytes({
-    title: welcomeTitle,
-    contentHtml: welcomeHtml,
-    doodlesJson,
-    pageSettingsJson,
-  });
-
-  db.prepare(
-    `INSERT INTO documents (
-      id, user_id, folder_id, title, content_html, doodles_json,
-      page_settings_json, word_count, size_bytes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    crypto.randomUUID(),
-    userId,
-    folderId,
-    welcomeTitle,
-    welcomeHtml,
-    doodlesJson,
-    pageSettingsJson,
-    countWords(welcomeHtml),
-    sizeBytes,
-    now,
-    now
-  );
-
-  recalculateUserStorage(db, userId);
-}
-
 export function createAuthRouter(db) {
   const router = express.Router();
 
@@ -103,64 +56,21 @@ export function createAuthRouter(db) {
       courseSection = '',
     } = req.body || {};
 
-    const cleanName = String(fullName).trim();
-    const cleanEmail = String(email).trim().toLowerCase();
-    const cleanStudentNum = String(studentNumber).trim();
-    const cleanCourse = String(courseSection).trim();
-    const rawPassword = String(password);
+    const result = createStudentAccount(db, {
+      fullName,
+      email,
+      password,
+      studentNumber,
+      courseSection,
+      markLoggedInNow: true,
+    });
 
-    if (cleanName.length < 2 || cleanName.length > 100) {
-      return res.status(400).json({
-        error: 'Mangyaring ilagay ang iyong buong pangalan (hindi bababa sa 2 titik).',
-      });
-    }
-    if (!EMAIL_RE.test(cleanEmail)) {
-      return res.status(400).json({
-        error: 'Mangyaring maglagay ng wastong email address.',
-      });
-    }
-    if (rawPassword.length < 8) {
-      return res.status(400).json({
-        error: 'Ang password ay dapat may hindi bababa sa 8 karakter.',
-      });
-    }
-    if (cleanStudentNum.length > 40 || cleanCourse.length > 80) {
-      return res.status(400).json({
-        error: 'Masyadong mahaba ang Numero ng Mag-aaral o Kurso/Seksyon.',
-      });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
 
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
-    if (existing) {
-      return res.status(409).json({
-        error: 'May nakarehistro nang account gamit ang email na ito.',
-      });
-    }
-
-    const userId = crypto.randomUUID();
+    const createdUser = result.user;
     const now = new Date().toISOString();
-    const passwordHash = hashPassword(rawPassword);
-
-    db.prepare(
-      `INSERT INTO users (
-        id, email, password_hash, full_name, student_number, course_section,
-        role, status, storage_quota_bytes, storage_used_bytes, created_at, updated_at, last_login_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'student', 'active', ?, 0, ?, ?, ?)`
-    ).run(
-      userId,
-      cleanEmail,
-      passwordHash,
-      cleanName,
-      cleanStudentNum,
-      cleanCourse,
-      CONFIG.DEFAULT_STORAGE_QUOTA_BYTES,
-      now,
-      now,
-      now
-    );
-
-    createStarterWorkspace(db, userId, cleanName);
-
     const { cookieValue, tokenHash } = generateSessionToken();
     const expiresAt = new Date(Date.now() + CONFIG.SESSION_TTL_MS).toISOString();
     db.prepare(
@@ -168,26 +78,18 @@ export function createAuthRouter(db) {
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(
       crypto.randomUUID(),
-      userId,
+      createdUser.id,
       tokenHash,
       now,
       expiresAt,
       String(req.headers['user-agent'] || '').slice(0, 200)
     );
 
-    logAudit(db, {
-      actorId: userId,
-      targetUserId: userId,
-      action: 'STUDENT_REGISTERED',
-      details: `Nagparehistro ang mag-aaral: ${cleanEmail}`,
-    });
-
     setSessionCookie(res, cookieValue);
-    const createdUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
     return res.status(201).json({
       message: 'Matagumpay na nairehistro ang iyong account!',
       user: sanitizeUserPayload(createdUser),
-      storage: getStorageSummary(db, userId),
+      storage: getStorageSummary(db, createdUser.id),
     });
   });
 
@@ -202,10 +104,14 @@ export function createAuthRouter(db) {
       });
     }
 
-    // Allow login via email OR student_number for student convenience
-    const user = db
-      .prepare('SELECT * FROM users WHERE email = ? OR (student_number != \'\' AND LOWER(student_number) = ?)')
-      .get(cleanEmail, cleanEmail);
+    // Lookup by exact email first; fall back to student_number matches if not found by email
+    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(cleanEmail);
+    if (!user) {
+      const candidates = db
+        .prepare("SELECT * FROM users WHERE student_number != '' AND LOWER(student_number) = ?")
+        .all(cleanEmail);
+      user = candidates.find((c) => verifyPassword(rawPassword, c.password_hash)) || candidates[0] || null;
+    }
     if (!user || !verifyPassword(rawPassword, user.password_hash)) {
       return res.status(401).json({
         error: 'Mali ang email/username o password na iyong inilagay.',

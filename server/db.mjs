@@ -27,6 +27,7 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'inactive')),
       storage_quota_bytes INTEGER NOT NULL DEFAULT ${CONFIG.DEFAULT_STORAGE_QUOTA_BYTES},
       storage_used_bytes INTEGER NOT NULL DEFAULT 0,
+      managed_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       notification_settings_json TEXT NOT NULL DEFAULT '{"notifyAutoSave":true,"notifyStorageAlerts":true,"notifyShareAlerts":true,"notifyPrivacyRequests":true,"defaultDownloadFormat":"docx"}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -132,11 +133,24 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
 
   ensureMigrations(db);
   seedDefaultAdmin(db);
+  linkStudentsToAdmin(db);
   return db;
+}
+
+function linkStudentsToAdmin(db) {
+  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get();
+  if (admin) {
+    db.prepare(
+      "UPDATE users SET managed_by_admin_id = ? WHERE role = 'student' AND managed_by_admin_id IS NULL"
+    ).run(admin.id);
+  }
 }
 
 function ensureMigrations(db) {
   const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  if (!userCols.has('managed_by_admin_id')) {
+    db.exec('ALTER TABLE users ADD COLUMN managed_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL');
+  }
   if (!userCols.has('notification_settings_json')) {
     db.exec(
       `ALTER TABLE users ADD COLUMN notification_settings_json TEXT NOT NULL DEFAULT '{"notifyAutoSave":true,"notifyStorageAlerts":true,"notifyShareAlerts":true,"notifyPrivacyRequests":true,"defaultDownloadFormat":"docx"}'`

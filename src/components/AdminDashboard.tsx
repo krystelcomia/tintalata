@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   Menu,
   RefreshCw,
+  UserPlus,
 } from 'lucide-react';
 import type {
   AdminOverview,
@@ -86,6 +87,16 @@ export function AdminDashboard({
   // Delete Student Confirm
   const [deleteTarget, setDeleteTarget] = useState<AdminStudent | null>(null);
 
+  // Create Student Modal (saves to DB & links to Admin account)
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newStudentNum, setNewStudentNum] = useState('');
+  const [newCourse, setNewCourse] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newQuotaMB, setNewQuotaMB] = useState(50);
+  const [creatingStudent, setCreatingStudent] = useState(false);
+
   const loadDashboard = async () => {
     setLoading(true);
     try {
@@ -113,6 +124,45 @@ export function AdminDashboard({
   useEffect(() => {
     void loadDashboard();
   }, [statusFilter]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void loadDashboard();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [statusFilter]);
+
+  const handleCreateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingStudent(true);
+    try {
+      const res = await apiRequest<{ message: string }>('/api/admin/students', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: newName,
+          email: newEmail,
+          studentNumber: newStudentNum,
+          courseSection: newCourse,
+          password: newPassword,
+          storageQuotaMB: newQuotaMB,
+        }),
+      });
+      onNotify('success', res.message);
+      setCreateOpen(false);
+      setNewName('');
+      setNewEmail('');
+      setNewStudentNum('');
+      setNewCourse('');
+      setNewPassword('');
+      setNewQuotaMB(50);
+      await loadDashboard();
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : 'Hindi nagawa ang account.');
+    } finally {
+      setCreatingStudent(false);
+    }
+  };
 
   const openManageModal = (student: AdminStudent) => {
     setSelectedStudent(student);
@@ -418,15 +468,25 @@ export function AdminDashboard({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void loadDashboard()}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            I-refresh ang Datos
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              Bagong Account ng Mag-aaral
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadDashboard()}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              I-refresh ang Datos
+            </button>
+          </div>
         </header>
 
         {/* Full-Area Main Panel */}
@@ -1133,6 +1193,127 @@ export function AdminDashboard({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Create Student Account Modal */}
+      {createOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-blue-100 overflow-hidden">
+            <div className="flex items-center justify-between bg-blue-700 px-5 py-4 text-white">
+              <div className="flex items-center gap-2">
+                <UserPlus className="h-5 w-5" />
+                <h3 className="text-base font-bold">Gumawa ng Account ng Mag-aaral</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="rounded-lg p-1 hover:bg-white/15"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateStudent} className="p-5 space-y-3.5 text-xs">
+              <p className="text-slate-600">
+                Ang bagong account ay awtomatikong mase-save sa database, maiuugnay sa iyong
+                Admin Dashboard, at agad makakapag-log in sa pahina ng Pag-log in.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Buong Pangalan *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Hal. Ana Santos"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="ana.santos@paaralan.ph"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Numero ng Mag-aaral
+                  </label>
+                  <input
+                    type="text"
+                    value={newStudentNum}
+                    onChange={(e) => setNewStudentNum(e.target.value)}
+                    placeholder="2026-0200"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Kurso / Seksyon</label>
+                  <input
+                    type="text"
+                    value={newCourse}
+                    onChange={(e) => setNewCourse(e.target.value)}
+                    placeholder="BSIS 1-A"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Paunang Password *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Min. 8 karakter"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Kapasidad ng Storage (MB)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10240}
+                    required
+                    value={newQuotaMB}
+                    onChange={(e) => setNewQuotaMB(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700"
+                >
+                  Kanselahin
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingStudent}
+                  className="rounded-xl bg-blue-600 px-5 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {creatingStudent ? 'Ginagawa...' : 'Gawin at I-save ang Account'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
