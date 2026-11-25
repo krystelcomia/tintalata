@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { User as UserIcon, Save, Menu, Bell, LogOut } from 'lucide-react';
 import type { NotificationSettings, User } from '../types';
 import { apiRequest, formatDateTimeTL } from '../utils/api';
+import { PasswordInput } from './PasswordInput';
 
 interface ProfilePageViewProps {
   user: User;
@@ -161,19 +162,17 @@ export function ProfilePageView({
                 Palitan ang Password (Opsyonal)
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  type="password"
+                <PasswordInput
                   value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  onChange={setCurrentPassword}
                   placeholder="Kasalukuyang password"
-                  className="w-full rounded-xl border border-blue-200 px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none"
+                  showLeadingIcon={false}
                 />
-                <input
-                  type="password"
+                <PasswordInput
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  onChange={setNewPassword}
                   placeholder="Bagong password (min. 8 karakter)"
-                  className="w-full rounded-xl border border-blue-200 px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none"
+                  showLeadingIcon={false}
                 />
               </div>
             </div>

@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
-  Eye,
-  EyeOff,
   LogIn,
   UserPlus,
   Mail,
-  Lock,
   User as UserIcon,
   Hash,
   GraduationCap,
@@ -18,6 +15,7 @@ import {
 import { apiRequest } from '../utils/api';
 import type { StorageSummary, User } from '../types';
 import { TintalataLogo } from './TintalataLogo';
+import { PasswordInput } from './PasswordInput';
 
 export type AuthRouteMode = 'login' | 'register' | 'forgot-password';
 
@@ -29,7 +27,6 @@ interface AuthPageProps {
 }
 
 export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPageProps) {
-  const [showPassword, setShowPassword] = useState(false);
   const [showAdminHint, setShowAdminHint] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -295,27 +292,15 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                   >
                     Password
                   </label>
-                  <div className="relative">
-                    <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
-                    <input
-                      id="login-password"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      autoComplete="current-password"
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      placeholder="Ilagay ang iyong password"
-                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-11 py-3 text-sm text-slate-900 placeholder-slate-400 shadow-2xs focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100 transition"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((s) => !s)}
-                      aria-label={showPassword ? 'Itago ang password' : 'Ipakita ang password'}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
+                  <PasswordInput
+                    id="login-password"
+                    required
+                    autoComplete="current-password"
+                    value={loginPassword}
+                    onChange={setLoginPassword}
+                    placeholder="Ilagay ang iyong password"
+                    inputClassName="py-3"
+                  />
                 </div>
 
                 <div className="flex items-center justify-between text-xs pt-0.5">
@@ -492,63 +477,54 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    <label
+                      htmlFor="reg-password"
+                      className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1"
+                    >
                       Password *
                     </label>
-                    <div className="relative">
-                      <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        required
-                        minLength={8}
-                        value={regPassword}
-                        onChange={(e) => setRegPassword(e.target.value)}
-                        placeholder="Min. 8 karakter"
-                        className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
-                      />
-                    </div>
+                    <PasswordInput
+                      id="reg-password"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      value={regPassword}
+                      onChange={setRegPassword}
+                      placeholder="Min. 8 karakter"
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    <label
+                      htmlFor="reg-confirm-password"
+                      className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1"
+                    >
                       Kumpirmahin *
                     </label>
-                    <div className="relative">
-                      <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        required
-                        minLength={8}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Ulitin ang password"
-                        className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
-                      />
-                    </div>
+                    <PasswordInput
+                      id="reg-confirm-password"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={setConfirmPassword}
+                      placeholder="Ulitin ang password"
+                    />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex-1 pr-4">
-                    {passwordStrength && (
-                      <div className="space-y-1">
-                        <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
-                          <div className={`h-full rounded-full ${passwordStrength.color} ${passwordStrength.width} transition-all`} />
-                        </div>
-                        <p className="text-[11px] font-medium text-slate-600">
-                          {passwordStrength.label}
-                        </p>
-                      </div>
-                    )}
+                {passwordStrength && (
+                  <div className="space-y-1 text-xs">
+                    <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${passwordStrength.color} ${passwordStrength.width} transition-all`}
+                      />
+                    </div>
+                    <p className="text-[11px] font-medium text-slate-600">
+                      {passwordStrength.label}
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((s) => !s)}
-                    className="font-semibold text-blue-700 hover:underline shrink-0"
-                  >
-                    {showPassword ? 'Itago ang password' : 'Ipakita ang password'}
-                  </button>
-                </div>
+                )}
 
                 <button
                   type="submit"
