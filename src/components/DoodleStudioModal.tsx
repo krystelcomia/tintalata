@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   PenTool,
+  Pencil,
   Highlighter,
   Eraser,
   Minus,
+  ArrowUpRight,
   Square,
   Circle,
+  Triangle,
   Undo2,
   Redo2,
   Trash2,
@@ -13,7 +16,12 @@ import {
   Check,
   X,
 } from 'lucide-react';
-import type { DoodleItem, DoodleStroke } from '../types';
+import type { DoodleItem, DoodleStroke, DrawingTool } from '../types';
+import {
+  DRAW_COLOR_SWATCHES,
+  drawStrokeOnContext,
+  renderCanvasBackground,
+} from '../utils/drawing';
 
 interface DoodleStudioModalProps {
   isOpen: boolean;
@@ -25,126 +33,6 @@ interface DoodleStudioModalProps {
 const CANVAS_W = 760;
 const CANVAS_H = 420;
 
-const COLOR_SWATCHES = [
-  '#1d4ed8',
-  '#0f172a',
-  '#dc2626',
-  '#059669',
-  '#d97706',
-  '#7c3aed',
-  '#0284c7',
-  '#db2777',
-];
-
-function drawStrokeOnContext(ctx: CanvasRenderingContext2D, stroke: DoodleStroke) {
-  if (!stroke.points.length) return;
-  ctx.save();
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = stroke.width;
-
-  if (stroke.tool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = 'rgba(0,0,0,1)';
-  } else if (stroke.tool === 'highlighter') {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 0.35;
-    ctx.strokeStyle = stroke.color;
-  } else {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = stroke.opacity;
-    ctx.strokeStyle = stroke.color;
-  }
-
-  const pts = stroke.points;
-
-  if (stroke.tool === 'line' && pts.length >= 2) {
-    const start = pts[0];
-    const end = pts[pts.length - 1];
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-
-  if (stroke.tool === 'rect' && pts.length >= 2) {
-    const start = pts[0];
-    const end = pts[pts.length - 1];
-    ctx.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
-    ctx.restore();
-    return;
-  }
-
-  if (stroke.tool === 'circle' && pts.length >= 2) {
-    const start = pts[0];
-    const end = pts[pts.length - 1];
-    const cx = (start.x + end.x) / 2;
-    const cy = (start.y + end.y) / 2;
-    const rx = Math.abs(end.x - start.x) / 2;
-    const ry = Math.abs(end.y - start.y) / 2;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-
-  // Smooth freehand stroke (pen / highlighter / eraser)
-  ctx.beginPath();
-  if (pts.length === 1) {
-    ctx.arc(pts[0].x, pts[0].y, stroke.width / 2, 0, Math.PI * 2);
-    ctx.fillStyle = stroke.tool === 'eraser' ? 'rgba(0,0,0,1)' : stroke.color;
-    ctx.fill();
-  } else {
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const midX = (pts[i].x + pts[i + 1].x) / 2;
-      const midY = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
-    }
-    const last = pts[pts.length - 1];
-    ctx.lineTo(last.x, last.y);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function renderBackground(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  bg: 'white' | 'transparent' | 'grid'
-) {
-  ctx.clearRect(0, 0, width, height);
-  if (bg === 'transparent') return;
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
-
-  if (bg === 'grid') {
-    ctx.save();
-    ctx.strokeStyle = '#dbeafe';
-    ctx.lineWidth = 1;
-    const step = 24;
-    for (let x = step; x < width; x += step) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-    for (let y = step; y < height; y += step) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-}
-
 export function DoodleStudioModal({
   isOpen,
   initialDoodle,
@@ -155,7 +43,7 @@ export function DoodleStudioModal({
   const inkCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [title, setTitle] = useState('Aking Guhit');
-  const [tool, setTool] = useState<DoodleStroke['tool']>('pen');
+  const [tool, setTool] = useState<DrawingTool>('pen');
   const [color, setColor] = useState('#1d4ed8');
   const [brushSize, setBrushSize] = useState(4);
   const [background, setBackground] = useState<'white' | 'transparent' | 'grid'>('white');
@@ -178,7 +66,6 @@ export function DoodleStudioModal({
     setRedoStack([]);
   }, [isOpen, initialDoodle]);
 
-  // Redraw ink layer + composite onto visible canvas whenever strokes or background change
   const redrawAll = (
     strokesToDraw: DoodleStroke[],
     previewStroke: DoodleStroke | null,
@@ -196,7 +83,6 @@ export function DoodleStudioModal({
     const visCtx = visible.getContext('2d');
     if (!inkCtx || !visCtx) return;
 
-    // 1. Render all ink strokes on isolated offscreen ink canvas (so eraser works cleanly without erasing background!)
     inkCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
     for (const s of strokesToDraw) {
       drawStrokeOnContext(inkCtx, s);
@@ -205,8 +91,7 @@ export function DoodleStudioModal({
       drawStrokeOnContext(inkCtx, previewStroke);
     }
 
-    // 2. Render background + composite ink onto visible canvas
-    renderBackground(visCtx, CANVAS_W, CANVAS_H, bg);
+    renderCanvasBackground(visCtx, CANVAS_W, CANVAS_H, bg);
     visCtx.drawImage(ink, 0, 0);
   };
 
@@ -220,11 +105,9 @@ export function DoodleStudioModal({
   const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    const scaleX = CANVAS_W / rect.width;
-    const scaleY = CANVAS_H / rect.height;
     return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
+      x: (e.clientX - rect.left) * (CANVAS_W / rect.width),
+      y: (e.clientY - rect.top) * (CANVAS_H / rect.height),
     };
   };
 
@@ -234,7 +117,11 @@ export function DoodleStudioModal({
     const pt = getCanvasPoint(e);
     isDrawingRef.current = true;
     const effectiveWidth =
-      tool === 'highlighter' ? Math.max(14, brushSize * 2.5) : tool === 'eraser' ? brushSize * 2 : brushSize;
+      tool === 'highlighter'
+        ? Math.max(14, brushSize * 2.5)
+        : tool === 'eraser'
+          ? brushSize * 2
+          : brushSize;
 
     const stroke: DoodleStroke = {
       tool,
@@ -251,7 +138,13 @@ export function DoodleStudioModal({
     if (!isDrawingRef.current || !activeStrokeRef.current) return;
     const pt = getCanvasPoint(e);
     const cur = activeStrokeRef.current;
-    if (cur.tool === 'line' || cur.tool === 'rect' || cur.tool === 'circle') {
+    if (
+      cur.tool === 'line' ||
+      cur.tool === 'arrow' ||
+      cur.tool === 'rect' ||
+      cur.tool === 'circle' ||
+      cur.tool === 'triangle'
+    ) {
       cur.points = [cur.points[0], pt];
     } else {
       cur.points.push(pt);
@@ -315,19 +208,21 @@ export function DoodleStudioModal({
     });
   };
 
-  const toolsList: Array<{ id: DoodleStroke['tool']; label: string; icon: JSX.Element }> = [
+  const toolsList: Array<{ id: DrawingTool; label: string; icon: JSX.Element }> = [
     { id: 'pen', label: 'Panulat', icon: <PenTool className="h-4 w-4" /> },
+    { id: 'pencil', label: 'Lapis', icon: <Pencil className="h-4 w-4" /> },
     { id: 'highlighter', label: 'Highlighter', icon: <Highlighter className="h-4 w-4" /> },
     { id: 'eraser', label: 'Pambura', icon: <Eraser className="h-4 w-4" /> },
     { id: 'line', label: 'Linya', icon: <Minus className="h-4 w-4" /> },
+    { id: 'arrow', label: 'Palaso', icon: <ArrowUpRight className="h-4 w-4" /> },
     { id: 'rect', label: 'Parihaba', icon: <Square className="h-4 w-4" /> },
     { id: 'circle', label: 'Bilog', icon: <Circle className="h-4 w-4" /> },
+    { id: 'triangle', label: 'Tatsulok', icon: <Triangle className="h-4 w-4" /> },
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-5">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl border border-blue-200 overflow-hidden flex flex-col max-h-[95vh]">
-        {/* Header */}
+      <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl border border-blue-200 overflow-hidden flex flex-col max-h-[95vh]">
         <div className="flex items-center justify-between bg-gradient-to-r from-blue-800 to-blue-600 px-5 py-3.5 text-white">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <PenTool className="h-5 w-5 shrink-0" />
@@ -352,10 +247,8 @@ export function DoodleStudioModal({
           </button>
         </div>
 
-        {/* Drawing Toolbar */}
-        <div className="border-b border-blue-100 bg-blue-50/70 px-4 py-2.5 flex flex-wrap items-center gap-3">
-          {/* Tools */}
-          <div className="flex items-center gap-1 rounded-xl bg-white p-1 border border-blue-100">
+        <div className="border-b border-blue-100 bg-blue-50/70 px-4 py-2.5 flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-1 rounded-xl bg-white p-1 border border-blue-100">
             {toolsList.map((t) => (
               <button
                 key={t.id}
@@ -369,14 +262,13 @@ export function DoodleStudioModal({
                 }`}
               >
                 {t.icon}
-                <span className="hidden md:inline">{t.label}</span>
+                <span className="hidden lg:inline">{t.label}</span>
               </button>
             ))}
           </div>
 
-          {/* Colors */}
           <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-blue-100">
-            {COLOR_SWATCHES.map((swatch) => (
+            {DRAW_COLOR_SWATCHES.map((swatch) => (
               <button
                 key={swatch}
                 type="button"
@@ -405,20 +297,18 @@ export function DoodleStudioModal({
             />
           </div>
 
-          {/* Brush Size */}
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-blue-100 text-xs font-medium text-slate-700">
             <span>Kapal: {brushSize}px</span>
             <input
               type="range"
               min={2}
-              max={24}
+              max={28}
               value={brushSize}
               onChange={(e) => setBrushSize(Number(e.target.value))}
               className="w-20 accent-blue-600"
             />
           </div>
 
-          {/* Background */}
           <select
             value={background}
             onChange={(e) => setBackground(e.target.value as 'white' | 'transparent' | 'grid')}
@@ -429,7 +319,6 @@ export function DoodleStudioModal({
             <option value="transparent">Transparent</option>
           </select>
 
-          {/* Actions */}
           <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button"
@@ -461,7 +350,6 @@ export function DoodleStudioModal({
           </div>
         </div>
 
-        {/* Drawing Surface */}
         <div className="flex-1 overflow-auto bg-slate-100 p-4 flex items-center justify-center">
           <div
             className="rounded-xl border-2 border-blue-200 shadow-lg overflow-hidden bg-white"
@@ -488,7 +376,6 @@ export function DoodleStudioModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="border-t border-slate-200 bg-white px-5 py-3 flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"

@@ -13,6 +13,22 @@ import { logAudit } from '../db.mjs';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const DEFAULT_NOTIFICATION_SETTINGS = {
+  notifyAutoSave: true,
+  notifyStorageAlerts: true,
+  notifyShareAlerts: true,
+  notifyPrivacyRequests: true,
+  defaultDownloadFormat: 'docx',
+};
+
+function parseNotificationSettings(raw) {
+  try {
+    return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(raw || '{}') };
+  } catch {
+    return { ...DEFAULT_NOTIFICATION_SETTINGS };
+  }
+}
+
 function sanitizeUserPayload(row) {
   return {
     id: row.id,
@@ -24,6 +40,7 @@ function sanitizeUserPayload(row) {
     status: row.status,
     storageQuotaBytes: Number(row.storage_quota_bytes),
     storageUsedBytes: Number(row.storage_used_bytes),
+    notificationSettings: parseNotificationSettings(row.notification_settings_json),
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
   };
@@ -317,7 +334,14 @@ export function createAuthRouter(db) {
   });
 
   router.patch('/profile', requireAuth, (req, res) => {
-    const { fullName, studentNumber, courseSection, currentPassword, newPassword } = req.body || {};
+    const {
+      fullName,
+      studentNumber,
+      courseSection,
+      currentPassword,
+      newPassword,
+      notificationSettings,
+    } = req.body || {};
     const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     if (!existing) {
       return res.status(404).json({ error: 'Hindi natagpuan ang user.' });
@@ -335,6 +359,34 @@ export function createAuthRouter(db) {
       studentNumber !== undefined ? String(studentNumber).trim().slice(0, 40) : existing.student_number;
     const updatedCourse =
       courseSection !== undefined ? String(courseSection).trim().slice(0, 80) : existing.course_section;
+
+    const existingSettings = parseNotificationSettings(existing.notification_settings_json);
+    const mergedSettings =
+      notificationSettings && typeof notificationSettings === 'object'
+        ? {
+            notifyAutoSave:
+              notificationSettings.notifyAutoSave !== undefined
+                ? Boolean(notificationSettings.notifyAutoSave)
+                : existingSettings.notifyAutoSave,
+            notifyStorageAlerts:
+              notificationSettings.notifyStorageAlerts !== undefined
+                ? Boolean(notificationSettings.notifyStorageAlerts)
+                : existingSettings.notifyStorageAlerts,
+            notifyShareAlerts:
+              notificationSettings.notifyShareAlerts !== undefined
+                ? Boolean(notificationSettings.notifyShareAlerts)
+                : existingSettings.notifyShareAlerts,
+            notifyPrivacyRequests:
+              notificationSettings.notifyPrivacyRequests !== undefined
+                ? Boolean(notificationSettings.notifyPrivacyRequests)
+                : existingSettings.notifyPrivacyRequests,
+            defaultDownloadFormat: ['docx', 'pdf', 'doc', 'html', 'txt'].includes(
+              notificationSettings.defaultDownloadFormat
+            )
+              ? notificationSettings.defaultDownloadFormat
+              : existingSettings.defaultDownloadFormat,
+          }
+        : existingSettings;
 
     let passwordHash = existing.password_hash;
     if (newPassword !== undefined && String(newPassword).length > 0) {
@@ -355,13 +407,22 @@ export function createAuthRouter(db) {
     const now = new Date().toISOString();
     db.prepare(
       `UPDATE users
-       SET full_name = ?, student_number = ?, course_section = ?, password_hash = ?, updated_at = ?
+       SET full_name = ?, student_number = ?, course_section = ?,
+           notification_settings_json = ?, password_hash = ?, updated_at = ?
        WHERE id = ?`
-    ).run(updatedName, updatedStudentNumber, updatedCourse, passwordHash, now, req.user.id);
+    ).run(
+      updatedName,
+      updatedStudentNumber,
+      updatedCourse,
+      JSON.stringify(mergedSettings),
+      passwordHash,
+      now,
+      req.user.id
+    );
 
     const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     return res.json({
-      message: 'Matagumpay na na-update ang impormasyon ng iyong profile.',
+      message: 'Matagumpay na na-update ang impormasyon ng iyong profile at mga setting.',
       user: sanitizeUserPayload(updated),
     });
   });

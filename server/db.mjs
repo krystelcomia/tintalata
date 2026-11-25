@@ -27,6 +27,7 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'inactive')),
       storage_quota_bytes INTEGER NOT NULL DEFAULT ${CONFIG.DEFAULT_STORAGE_QUOTA_BYTES},
       storage_used_bytes INTEGER NOT NULL DEFAULT 0,
+      notification_settings_json TEXT NOT NULL DEFAULT '{"notifyAutoSave":true,"notifyStorageAlerts":true,"notifyShareAlerts":true,"notifyPrivacyRequests":true,"defaultDownloadFormat":"docx"}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_login_at TEXT
@@ -62,14 +63,27 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
       title TEXT NOT NULL,
       content_html TEXT NOT NULL DEFAULT '',
       doodles_json TEXT NOT NULL DEFAULT '[]',
+      page_doodle_json TEXT NOT NULL DEFAULT '{"strokes":[],"dataUrl":""}',
       page_settings_json TEXT NOT NULL DEFAULT '{"orientation":"portrait","margins":"normal","pageColor":"#ffffff"}',
       word_count INTEGER NOT NULL DEFAULT 0,
       size_bytes INTEGER NOT NULL DEFAULT 0,
+      is_favorite INTEGER NOT NULL DEFAULT 0,
       is_deleted INTEGER NOT NULL DEFAULT 0,
       deleted_at TEXT,
       deleted_with_folder_id TEXT,
+      last_opened_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS document_shares (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      shared_with_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      permission_level TEXT NOT NULL CHECK (permission_level IN ('read', 'read_write')),
+      created_at TEXT NOT NULL,
+      UNIQUE(document_id, shared_with_user_id)
     );
 
     CREATE TABLE IF NOT EXISTS access_grants (
@@ -113,10 +127,32 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_access_grants_student ON access_grants(student_id, status);
     CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_password_resets_status ON password_reset_requests(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_document_shares_target ON document_shares(shared_with_user_id);
   `);
 
+  ensureMigrations(db);
   seedDefaultAdmin(db);
   return db;
+}
+
+function ensureMigrations(db) {
+  const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  if (!userCols.has('notification_settings_json')) {
+    db.exec(
+      `ALTER TABLE users ADD COLUMN notification_settings_json TEXT NOT NULL DEFAULT '{"notifyAutoSave":true,"notifyStorageAlerts":true,"notifyShareAlerts":true,"notifyPrivacyRequests":true,"defaultDownloadFormat":"docx"}'`
+    );
+  }
+
+  const docCols = new Set(db.prepare('PRAGMA table_info(documents)').all().map((c) => c.name));
+  if (!docCols.has('page_doodle_json')) {
+    db.exec(`ALTER TABLE documents ADD COLUMN page_doodle_json TEXT NOT NULL DEFAULT '{"strokes":[],"dataUrl":""}'`);
+  }
+  if (!docCols.has('is_favorite')) {
+    db.exec(`ALTER TABLE documents ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!docCols.has('last_opened_at')) {
+    db.exec(`ALTER TABLE documents ADD COLUMN last_opened_at TEXT`);
+  }
 }
 
 export function seedDefaultAdmin(db) {

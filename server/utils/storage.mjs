@@ -2,12 +2,14 @@ export function calculateDocumentBytes({
   title = '',
   contentHtml = '',
   doodlesJson = '[]',
+  pageDoodleJson = '{"strokes":[],"dataUrl":""}',
   pageSettingsJson = '{}',
 }) {
   return (
     Buffer.byteLength(String(title), 'utf8') +
     Buffer.byteLength(String(contentHtml), 'utf8') +
     Buffer.byteLength(String(doodlesJson), 'utf8') +
+    Buffer.byteLength(String(pageDoodleJson), 'utf8') +
     Buffer.byteLength(String(pageSettingsJson), 'utf8')
   );
 }

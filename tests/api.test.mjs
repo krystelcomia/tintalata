@@ -148,16 +148,76 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   });
   assert.equal(bEditFolder.status, 404);
 
-  // 5. Download document (.doc) and folder (.zip)
+  // 5. Download document (.docx, .pdf, .doc) and folder (.zip)
   const dlDoc = await studentA.request(`/api/documents/${docId}/download?format=doc`);
   assert.equal(dlDoc.status, 200);
   assert.ok(dlDoc.body.toString('utf8').includes('Magandang araw!'));
 
-  const dlZip = await studentA.request(`/api/folders/${folderId}/download?format=doc`);
+  const dlDocx = await studentA.request(`/api/documents/${docId}/download?format=docx`);
+  assert.equal(dlDocx.status, 200);
+  const docxZip = await JSZip.loadAsync(dlDocx.body);
+  assert.ok(docxZip.files['word/document.xml']);
+
+  const dlPdf = await studentA.request(`/api/documents/${docId}/download?format=pdf`);
+  assert.equal(dlPdf.status, 200);
+  assert.ok(dlPdf.body.toString('latin1').startsWith('%PDF-'));
+
+  const dlZip = await studentA.request(`/api/folders/${folderId}/download?format=docx`);
   assert.equal(dlZip.status, 200);
   const zip = await JSZip.loadAsync(dlZip.body);
   const zipFiles = Object.keys(zip.files);
-  assert.ok(zipFiles.some((name) => name.includes('Aking Sanaysay.doc')));
+  assert.ok(zipFiles.some((name) => name.includes('Aking Sanaysay.docx')));
+
+  // 5b. Favorite, pageDoodle, sharing, and notification settings
+  const favPatch = await studentA.request(`/api/documents/${docId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      isFavorite: true,
+      pageDoodle: {
+        strokes: [{ tool: 'pen', color: '#1d4ed8', width: 4, opacity: 1, points: [{ x: 10, y: 10 }, { x: 40, y: 40 }] }],
+        dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      },
+    }),
+  });
+  assert.equal(favPatch.status, 200);
+  assert.equal(favPatch.body.document.isFavorite, true);
+  assert.equal(favPatch.body.document.pageDoodle.strokes.length, 1);
+
+  const shareWithB = await studentA.request(`/api/documents/${docId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ email: 'ibarra@paaralan.ph', permissionLevel: 'read' }),
+  });
+  assert.equal(shareWithB.status, 201);
+
+  const bSharedList = await studentB.request('/api/documents/shared/list');
+  assert.equal(bSharedList.status, 200);
+  assert.equal(bSharedList.body.sharedWithMe.length, 1);
+
+  const bOpenShared = await studentB.request(`/api/documents/${docId}`);
+  assert.equal(bOpenShared.status, 200);
+  assert.equal(bOpenShared.body.permission, 'read');
+
+  const bEditSharedBlocked = await studentB.request(`/api/documents/${docId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title: 'Di Dapat Ma-edit' }),
+  });
+  assert.equal(bEditSharedBlocked.status, 403);
+
+  const aShares = await studentA.request(`/api/documents/${docId}/shares`);
+  assert.equal(aShares.status, 200);
+  await studentA.request(`/api/documents/${docId}/shares/${aShares.body.shares[0].id}`, {
+    method: 'DELETE',
+  });
+
+  const profileUpdate = await studentA.request('/api/auth/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      notificationSettings: { notifyAutoSave: false, defaultDownloadFormat: 'pdf' },
+    }),
+  });
+  assert.equal(profileUpdate.status, 200);
+  assert.equal(profileUpdate.body.user.notificationSettings.notifyAutoSave, false);
+  assert.equal(profileUpdate.body.user.notificationSettings.defaultDownloadFormat, 'pdf');
 
   // 6. Soft Delete Folder -> Trash -> Restore -> Permanent Delete -> Storage reclaimed
   const delFolder = await studentA.request(`/api/folders/${folderId}`, { method: 'DELETE' });

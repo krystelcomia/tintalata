@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Home,
   FileText,
   FolderPlus,
   FilePlus2,
+  Folder,
+  Clock,
+  Star,
+  Share2,
   Trash2,
   HardDrive,
   Search,
@@ -11,22 +16,24 @@ import {
   ShieldCheck,
   LogOut,
   ChevronRight,
-  FolderOpen,
   PenTool,
   ArrowLeft,
   Menu,
   User as UserIcon,
-  Layers,
   X,
+  Brush,
+  ArrowUpDown,
 } from 'lucide-react';
 import type {
   DocumentFull,
   DocumentSummary,
   DoodleItem,
-  Folder,
+  Folder as FolderType,
   FolderColor,
   FolderIcon,
+  PageDoodleLayer,
   PageSettings,
+  SharedByMeItem,
   StorageSummary,
   TrashDocument,
   TrashFolder,
@@ -41,6 +48,7 @@ import { StoragePageView } from './StoragePageView';
 import { PrivacyPageView } from './PrivacyPageView';
 import { ProfilePageView } from './ProfilePageView';
 import { TintalataLogo } from './TintalataLogo';
+import { ShareModal } from './ShareModal';
 
 interface StudentWorkspaceProps {
   currentUser: User;
@@ -57,7 +65,20 @@ interface StudentWorkspaceProps {
   onNotify: (type: 'success' | 'error' | 'info', text: string) => void;
 }
 
-type NavSection = 'all' | 'root' | 'folder' | 'trash' | 'storage' | 'privacy' | 'profile';
+type NavSection =
+  | 'home'
+  | 'documents'
+  | 'folders'
+  | 'folder'
+  | 'recent'
+  | 'favorites'
+  | 'shared'
+  | 'trash'
+  | 'storage'
+  | 'privacy'
+  | 'profile';
+
+type SortOption = 'updated' | 'opened' | 'created' | 'title' | 'size';
 
 export function StudentWorkspace({
   currentUser,
@@ -70,45 +91,60 @@ export function StudentWorkspace({
 }: StudentWorkspaceProps) {
   const supportStudentId = supportContext?.studentId;
   const readOnly = supportContext ? supportContext.permissionLevel === 'read' : false;
+  const defaultDlFormat = currentUser.notificationSettings?.defaultDownloadFormat || 'docx';
 
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const [folders, setFolders] = useState<FolderType[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [sharedWithMe, setSharedWithMe] = useState<DocumentSummary[]>([]);
+  const [sharedByMe, setSharedByMe] = useState<SharedByMeItem[]>([]);
   const [storage, setStorage] = useState<StorageSummary>(initialStorage);
   const [trashFolders, setTrashFolders] = useState<TrashFolder[]>([]);
   const [trashDocs, setTrashDocs] = useState<TrashDocument[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingTrash, setLoadingTrash] = useState(false);
 
-  const [navSection, setNavSection] = useState<NavSection>('all');
+  const [navSection, setNavSection] = useState<NavSection>('home');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('updated');
 
   // Open document in WordEditor
   const [activeDoc, setActiveDoc] = useState<DocumentFull | null>(null);
+  const [openInDrawMode, setOpenInDrawMode] = useState(false);
   const [loadingDoc, setLoadingDoc] = useState(false);
 
-  // Modals & Mobile Sidebar
+  // Modals & Drawers
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
-  const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
+  const [editingFolder, setEditingFolder] = useState<FolderType | null>(null);
+  const [renameTarget, setRenameTarget] = useState<DocumentSummary | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [shareDocTarget, setShareDocTarget] = useState<DocumentSummary | null>(null);
   const [pendingGrants, setPendingGrants] = useState(initialPendingGrants);
 
   const refreshWorkspace = async () => {
     setLoadingList(true);
     try {
-      const [fRes, dRes, sRes, tRes] = await Promise.all([
-        apiRequest<{ folders: Folder[] }>('/api/folders', { supportStudentId }),
+      const [fRes, dRes, sRes, tRes, shRes] = await Promise.all([
+        apiRequest<{ folders: FolderType[] }>('/api/folders', { supportStudentId }),
         apiRequest<{ documents: DocumentSummary[] }>('/api/documents', { supportStudentId }),
         apiRequest<{ storage: StorageSummary }>('/api/storage', { supportStudentId }),
         apiRequest<{ folders: TrashFolder[]; documents: TrashDocument[] }>('/api/trash', {
           supportStudentId,
         }),
+        !supportStudentId && currentUser.role === 'student'
+          ? apiRequest<{ sharedWithMe: DocumentSummary[]; sharedByMe: SharedByMeItem[] }>(
+              '/api/documents/shared/list'
+            )
+          : Promise.resolve({ sharedWithMe: [], sharedByMe: [] }),
       ]);
       setFolders(fRes.folders);
       setDocuments(dRes.documents);
       setStorage(sRes.storage);
       setTrashFolders(tRes.folders);
       setTrashDocs(tRes.documents);
+      setSharedWithMe(shRes.sharedWithMe);
+      setSharedByMe(shRes.sharedByMe);
     } catch (err) {
       onNotify(
         'error',
@@ -141,14 +177,22 @@ export function StudentWorkspace({
     void refreshWorkspace();
   }, [supportStudentId]);
 
-  const openDocumentById = async (docId: string) => {
+  const openDocumentById = async (docId: string, startDrawMode = false) => {
     setLoadingDoc(true);
     try {
-      const res = await apiRequest<{ document: DocumentFull }>(`/api/documents/${docId}`, {
-        supportStudentId,
-      });
+      const res = await apiRequest<{ document: DocumentFull; permission?: 'read' | 'read_write' }>(
+        `/api/documents/${docId}`,
+        { supportStudentId }
+      );
+      setOpenInDrawMode(startDrawMode);
       setActiveDoc(res.document);
       setSidebarOpen(false);
+      // Update lastOpenedAt locally for Recent list
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === res.document.id ? { ...d, lastOpenedAt: res.document.lastOpenedAt } : d
+        )
+      );
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : 'Hindi mabuksan ang dokumento.');
     } finally {
@@ -156,7 +200,10 @@ export function StudentWorkspace({
     }
   };
 
-  const handleCreateDocument = async (targetFolderId: string | null = null) => {
+  const handleCreateDocument = async (
+    targetFolderId: string | null = null,
+    startInDrawMode = false
+  ) => {
     if (readOnly) return;
     try {
       const res = await apiRequest<{
@@ -167,13 +214,14 @@ export function StudentWorkspace({
         method: 'POST',
         supportStudentId,
         body: JSON.stringify({
-          title: 'Bagong Dokumento',
+          title: startInDrawMode ? 'Bagong Guhit at Doodle' : 'Bagong Dokumento',
           folderId: targetFolderId,
-          contentHtml: '<p></p>',
+          contentHtml: startInDrawMode ? '<h2>Aking Guhit</h2><p></p>' : '<p></p>',
           doodles: [],
         }),
       });
       setStorage(res.storage);
+      setOpenInDrawMode(startInDrawMode);
       setActiveDoc(res.document);
       setSidebarOpen(false);
       onNotify('success', res.message);
@@ -189,7 +237,9 @@ export function StudentWorkspace({
     folderId: string | null;
     contentHtml: string;
     doodles: DoodleItem[];
+    pageDoodle: PageDoodleLayer;
     pageSettings: PageSettings;
+    isFavorite: boolean;
   }) => {
     const res = await apiRequest<{ document: DocumentFull; storage: StorageSummary }>(
       `/api/documents/${payload.id}`,
@@ -201,7 +251,9 @@ export function StudentWorkspace({
           folderId: payload.folderId,
           contentHtml: payload.contentHtml,
           doodles: payload.doodles,
+          pageDoodle: payload.pageDoodle,
           pageSettings: payload.pageSettings,
+          isFavorite: payload.isFavorite,
         }),
       }
     );
@@ -219,11 +271,57 @@ export function StudentWorkspace({
               doodleCount: res.document.doodleCount,
               wordCount: res.document.wordCount,
               sizeBytes: res.document.sizeBytes,
+              isFavorite: res.document.isFavorite,
               updatedAt: res.document.updatedAt,
             }
           : d
       )
     );
+  };
+
+  const handleToggleFavorite = async (doc: DocumentSummary) => {
+    if (readOnly) return;
+    try {
+      const nextFav = !doc.isFavorite;
+      await apiRequest(`/api/documents/${doc.id}`, {
+        method: 'PATCH',
+        supportStudentId,
+        body: JSON.stringify({ isFavorite: nextFav }),
+      });
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === doc.id ? { ...d, isFavorite: nextFav } : d))
+      );
+      onNotify(
+        'info',
+        nextFav
+          ? `Idinagdag sa Mga Paborito ang "${doc.title}".`
+          : `Inalis sa Mga Paborito ang "${doc.title}".`
+      );
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : 'Hindi ma-update ang paborito.');
+    }
+  };
+
+  const handleRenameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameTarget || !renameValue.trim()) return;
+    try {
+      const res = await apiRequest<{ document: DocumentFull; message: string }>(
+        `/api/documents/${renameTarget.id}`,
+        {
+          method: 'PATCH',
+          supportStudentId,
+          body: JSON.stringify({ title: renameValue.trim() }),
+        }
+      );
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === renameTarget.id ? { ...d, title: res.document.title } : d))
+      );
+      onNotify('success', 'Napalitan na ang pangalan ng dokumento.');
+      setRenameTarget(null);
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : 'Hindi napalitan ang pangalan.');
+    }
   };
 
   const handleDeleteDocument = async (docId: string) => {
@@ -269,7 +367,7 @@ export function StudentWorkspace({
     await refreshWorkspace();
   };
 
-  const handleDeleteFolder = async (folder: Folder) => {
+  const handleDeleteFolder = async (folder: FolderType) => {
     if (readOnly) return;
     try {
       const res = await apiRequest<{ message: string }>(`/api/folders/${folder.id}`, {
@@ -278,7 +376,7 @@ export function StudentWorkspace({
       });
       if (selectedFolderId === folder.id) {
         setSelectedFolderId(null);
-        setNavSection('all');
+        setNavSection('folders');
       }
       if (activeDoc?.folderId === folder.id) {
         setActiveDoc(null);
@@ -290,10 +388,10 @@ export function StudentWorkspace({
     }
   };
 
-  const handleDownloadFolder = async (folder: Folder) => {
+  const handleDownloadFolder = async (folder: FolderType) => {
     try {
       await triggerDownload(
-        `/api/folders/${folder.id}/download?format=doc`,
+        `/api/folders/${folder.id}/download?format=${defaultDlFormat}`,
         `${folder.name}.zip`,
         supportStudentId
       );
@@ -352,7 +450,7 @@ export function StudentWorkspace({
   const activeFolder = selectedFolderId ? folderMap.get(selectedFolderId) || null : null;
 
   const breadcrumbs = useMemo(() => {
-    const trail: Folder[] = [];
+    const trail: FolderType[] = [];
     let cur = activeFolder;
     const seen = new Set<string>();
     while (cur && !seen.has(cur.id)) {
@@ -363,33 +461,85 @@ export function StudentWorkspace({
     return trail;
   }, [activeFolder, folderMap]);
 
+  const recentlyOpenedDocs = useMemo(
+    () =>
+      [...documents]
+        .sort(
+          (a, b) =>
+            new Date(b.lastOpenedAt || b.updatedAt).getTime() -
+            new Date(a.lastOpenedAt || a.updatedAt).getTime()
+        )
+        .slice(0, 4),
+    [documents]
+  );
+
+  const recentlyCreatedDocs = useMemo(
+    () =>
+      [...documents]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 4),
+    [documents]
+  );
+
+  const favoriteDocs = useMemo(() => documents.filter((d) => d.isFavorite), [documents]);
+
   const visibleFolders = useMemo(() => {
-    if (navSection !== 'all' && navSection !== 'folder') return [];
-    const targetParent = navSection === 'folder' ? selectedFolderId : null;
-    const base =
-      navSection === 'all' && !searchQuery.trim()
-        ? folders.filter((f) => f.parentId === null)
-        : folders.filter((f) => f.parentId === targetParent);
-    if (!searchQuery.trim()) return base;
-    const q = searchQuery.toLowerCase();
-    return folders.filter((f) => f.name.toLowerCase().includes(q));
+    if (navSection === 'folders') {
+      const q = searchQuery.toLowerCase().trim();
+      return q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : folders;
+    }
+    if (navSection === 'folder') {
+      return folders.filter((f) => f.parentId === selectedFolderId);
+    }
+    return [];
   }, [folders, navSection, selectedFolderId, searchQuery]);
 
   const visibleDocuments = useMemo(() => {
-    let list = documents;
-    if (navSection === 'root') {
-      list = list.filter((d) => d.folderId === null);
-    } else if (navSection === 'folder' && selectedFolderId) {
+    let list =
+      navSection === 'shared'
+        ? sharedWithMe
+        : navSection === 'favorites'
+          ? favoriteDocs
+          : documents;
+
+    if (navSection === 'folder' && selectedFolderId) {
       list = list.filter((d) => d.folderId === selectedFolderId);
     }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
         (d) => d.title.toLowerCase().includes(q) || d.previewText.toLowerCase().includes(q)
       );
     }
-    return list;
-  }, [documents, navSection, selectedFolderId, searchQuery]);
+
+    const sorted = [...list];
+    if (sortBy === 'opened' || navSection === 'recent') {
+      sorted.sort(
+        (a, b) =>
+          new Date(b.lastOpenedAt || b.updatedAt).getTime() -
+          new Date(a.lastOpenedAt || a.updatedAt).getTime()
+      );
+    } else if (sortBy === 'created') {
+      sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else if (sortBy === 'title') {
+      sorted.sort((a, b) => a.title.localeCompare(b.title, 'fil'));
+    } else if (sortBy === 'size') {
+      sorted.sort((a, b) => b.sizeBytes - a.sizeBytes);
+    } else {
+      sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    }
+
+    return sorted;
+  }, [
+    documents,
+    sharedWithMe,
+    favoriteDocs,
+    navSection,
+    selectedFolderId,
+    searchQuery,
+    sortBy,
+  ]);
 
   const trashTotalCount = trashFolders.length + trashDocs.length;
 
@@ -480,16 +630,149 @@ export function StudentWorkspace({
       active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:bg-blue-50'
     }`;
 
+  const renderDocCard = (doc: DocumentSummary) => {
+    const isSharedDoc = Boolean(doc.sharedRole);
+    const canEdit = !readOnly && (!isSharedDoc || doc.sharedRole === 'read_write');
+    return (
+      <div
+        key={doc.id}
+        className="group rounded-2xl border border-blue-100 bg-white p-4 shadow-2xs hover:border-blue-300 hover:shadow-md transition flex flex-col justify-between gap-3"
+      >
+        <div className="space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => void openDocumentById(doc.id)}
+              className="flex items-center gap-2.5 min-w-0 text-left flex-1"
+            >
+              <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-slate-900 truncate group-hover:text-blue-700">
+                  {doc.title}
+                </h3>
+                <p className="text-[11px] text-slate-400 truncate">
+                  {isSharedDoc
+                    ? `Mula kay ${doc.ownerName}`
+                    : doc.folderName || 'Pangunahing Lalagyan'}
+                </p>
+              </div>
+            </button>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {!isSharedDoc && !readOnly && (
+                <button
+                  type="button"
+                  onClick={() => void handleToggleFavorite(doc)}
+                  title={doc.isFavorite ? 'Alisin sa Paborito' : 'Idagdag sa Paborito'}
+                  className="rounded-lg p-1 hover:bg-amber-50 text-slate-300 hover:text-amber-500"
+                >
+                  <Star
+                    className={`h-4 w-4 ${doc.isFavorite ? 'fill-amber-400 text-amber-500' : ''}`}
+                  />
+                </button>
+              )}
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                {formatBytes(doc.sizeBytes)}
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void openDocumentById(doc.id)}
+            className="text-left w-full space-y-2"
+          >
+            <p className="text-xs text-slate-600 line-clamp-2 min-h-[32px]">
+              {doc.previewText || 'Walang lamang teksto pa...'}
+            </p>
+            <div className="flex items-center gap-3 text-[11px] text-slate-400">
+              <span>{doc.wordCount} salita</span>
+              {doc.doodleCount > 0 && (
+                <span className="inline-flex items-center gap-1 text-blue-600 font-semibold">
+                  <PenTool className="h-3 w-3" />
+                  {doc.doodleCount} guhit
+                </span>
+              )}
+              <span className="ml-auto">{formatDateTimeTL(doc.updatedAt)}</span>
+            </div>
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-1 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => void openDocumentById(doc.id)}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+          >
+            <Pencil className="h-3 w-3" />
+            {canEdit ? 'I-edit' : 'Buksan'}
+          </button>
+
+          {!isSharedDoc && !readOnly && (
+            <button
+              type="button"
+              onClick={() => {
+                setRenameTarget(doc);
+                setRenameValue(doc.title);
+              }}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+            >
+              Pangalanan
+            </button>
+          )}
+
+          {!isSharedDoc && !readOnly && !supportStudentId && (
+            <button
+              type="button"
+              onClick={() => setShareDocTarget(doc)}
+              title="Ibahagi"
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+            >
+              <Share2 className="h-3 w-3" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() =>
+              void triggerDownload(
+                `/api/documents/${doc.id}/download?format=${defaultDlFormat}`,
+                `${doc.title}.${defaultDlFormat}`,
+                supportStudentId
+              )
+            }
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+          >
+            <Download className="h-3 w-3" />
+            .{defaultDlFormat}
+          </button>
+
+          {!isSharedDoc && !readOnly && (
+            <button
+              type="button"
+              onClick={() => void handleDeleteDocument(doc.id)}
+              title="Ilipat sa Basurahan"
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const sidebarContent = (
     <div className="flex h-full flex-col bg-white border-r border-blue-100">
-      {/* Brand Header */}
       <div className="bg-gradient-to-br from-blue-800 via-blue-700 to-blue-600 p-4 text-white">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <TintalataLogo size="sm" variant="light" />
             <div>
               <h1 className="text-base font-extrabold leading-none">Tintalata</h1>
-              <p className="text-[11px] text-blue-100 mt-0.5">Espasyo ng Mag-aaral</p>
+              <p className="text-[11px] text-blue-100 mt-0.5">Workspace ng Mag-aaral</p>
             </div>
           </div>
           <button
@@ -537,13 +820,12 @@ export function StudentWorkspace({
         )}
       </div>
 
-      {/* Quick Create Buttons */}
       {!readOnly && (
         <div className="p-3 grid grid-cols-2 gap-2 border-b border-blue-50">
           <button
             type="button"
             onClick={() =>
-              void handleCreateDocument(navSection === 'folder' ? selectedFolderId : null)
+              void handleCreateDocument(navSection === 'folder' ? selectedFolderId : null, false)
             }
             className="flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-2.5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
           >
@@ -552,38 +834,52 @@ export function StudentWorkspace({
           </button>
           <button
             type="button"
-            onClick={() => {
-              setEditingFolder(null);
-              setFolderModalOpen(true);
-            }}
+            onClick={() =>
+              void handleCreateDocument(navSection === 'folder' ? selectedFolderId : null, true)
+            }
             className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-2.5 py-2.5 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
           >
-            <FolderPlus className="h-4 w-4" />
-            <span>Folder</span>
+            <Brush className="h-4 w-4" />
+            <span>Guhit</span>
           </button>
         </div>
       )}
 
-      {/* Organized Sidebar Navigation */}
       <div className="flex-1 overflow-y-auto p-3 space-y-5">
         <div>
           <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
-            Espasyo ng Trabaho
+            Nabigasyon
           </p>
           <nav className="space-y-1">
             <button
               type="button"
               onClick={() => {
                 setActiveDoc(null);
-                setNavSection('all');
+                setNavSection('home');
                 setSelectedFolderId(null);
                 setSidebarOpen(false);
               }}
-              className={navItemClass(navSection === 'all' && !activeDoc)}
+              className={navItemClass(navSection === 'home' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
-                <Layers className="h-4 w-4" />
-                Lahat ng Dokumento
+                <Home className="h-4 w-4" />
+                Tahanan
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDoc(null);
+                setNavSection('documents');
+                setSelectedFolderId(null);
+                setSidebarOpen(false);
+              }}
+              className={navItemClass(navSection === 'documents' && !activeDoc)}
+            >
+              <span className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Mga Dokumento Ko
               </span>
               <span className="text-[11px] opacity-80">{documents.length}</span>
             </button>
@@ -592,17 +888,74 @@ export function StudentWorkspace({
               type="button"
               onClick={() => {
                 setActiveDoc(null);
-                setNavSection('root');
+                setNavSection('folders');
                 setSelectedFolderId(null);
                 setSidebarOpen(false);
               }}
-              className={navItemClass(navSection === 'root' && !activeDoc)}
+              className={navItemClass(navSection === 'folders' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
-                <FolderOpen className="h-4 w-4" />
-                Pangunahing Lalagyan
+                <Folder className="h-4 w-4" />
+                Mga Folder Ko
+              </span>
+              <span className="text-[11px] opacity-80">{folders.length}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDoc(null);
+                setNavSection('recent');
+                setSelectedFolderId(null);
+                setSidebarOpen(false);
+              }}
+              className={navItemClass(navSection === 'recent' && !activeDoc)}
+            >
+              <span className="flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Mga Kamakailang File
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDoc(null);
+                setNavSection('favorites');
+                setSelectedFolderId(null);
+                setSidebarOpen(false);
+              }}
+              className={navItemClass(navSection === 'favorites' && !activeDoc)}
+            >
+              <span className="flex items-center gap-2">
+                <Star className="h-4 w-4" />
+                Mga Paborito
+              </span>
+              {favoriteDocs.length > 0 && (
+                <span className="text-[11px] opacity-80">{favoriteDocs.length}</span>
+              )}
+            </button>
+
+            {!supportContext && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveDoc(null);
+                  setNavSection('shared');
+                  setSelectedFolderId(null);
+                  setSidebarOpen(false);
+                }}
+                className={navItemClass(navSection === 'shared' && !activeDoc)}
+              >
+                <span className="flex items-center gap-2">
+                  <Share2 className="h-4 w-4" />
+                  Mga Ibinahaging Dokumento
+                </span>
+                {sharedWithMe.length > 0 && (
+                  <span className="text-[11px] opacity-80">{sharedWithMe.length}</span>
+                )}
+              </button>
+            )}
 
             <button
               type="button"
@@ -634,24 +987,39 @@ export function StudentWorkspace({
           </nav>
         </div>
 
-        {/* Customizable Folder Tree */}
+        {/* Folder Tree with Quick New Folder */}
         <div>
-          <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
-            Mga Folder ({folders.length})
-          </p>
+          <div className="flex items-center justify-between px-2 mb-1.5">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
+              Mga Folder ({folders.length})
+            </span>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingFolder(null);
+                  setFolderModalOpen(true);
+                }}
+                title="Gumawa ng Bagong Folder"
+                className="rounded-md p-1 text-blue-700 hover:bg-blue-50"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           {folders.length === 0 ? (
             <p className="px-2 py-2 text-[11px] text-slate-400">
-              Wala pang folder. Gumawa ng isa upang maayos ang iyong mga file.
+              Wala pang folder. Pindutin ang + upang gumawa.
             </p>
           ) : (
             <div className="space-y-0.5">{renderFolderTree(null, 0)}</div>
           )}
         </div>
 
-        {/* System & Security */}
+        {/* Settings & Security */}
         <div>
           <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
-            Sistema at Seguridad
+            Account at Seguridad
           </p>
           <nav className="space-y-1">
             <button
@@ -702,7 +1070,7 @@ export function StudentWorkspace({
                 >
                   <span className="flex items-center gap-2">
                     <UserIcon className="h-4 w-4" />
-                    Profile ng Account
+                    Profile at Mga Setting
                   </span>
                 </button>
               </>
@@ -711,7 +1079,7 @@ export function StudentWorkspace({
         </div>
       </div>
 
-      {/* Storage Widget + Logout */}
+      {/* Bottom Storage Card */}
       <div className="border-t border-blue-100 p-3.5 bg-blue-50/40 space-y-2.5">
         <div className="flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 font-bold text-blue-950">
@@ -759,12 +1127,29 @@ export function StudentWorkspace({
     </div>
   );
 
+  const sectionHeaderTitle = () => {
+    switch (navSection) {
+      case 'home':
+        return `Maligayang Pagdating, ${currentUser.fullName}`;
+      case 'documents':
+        return 'Mga Dokumento Ko';
+      case 'folders':
+        return 'Mga Folder Ko';
+      case 'recent':
+        return 'Mga Kamakailang File';
+      case 'favorites':
+        return 'Mga Paboritong Dokumento';
+      case 'shared':
+        return 'Mga Ibinahaging Dokumento';
+      default:
+        return 'Mga Dokumento';
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f8ff]">
-      {/* Desktop Fixed Sidebar */}
       <aside className="no-print hidden lg:block w-72 shrink-0 h-full">{sidebarContent}</aside>
 
-      {/* Mobile Drawer */}
       {sidebarOpen && (
         <div className="no-print fixed inset-0 z-40 lg:hidden flex">
           <div className="fixed inset-0 bg-slate-900/50" onClick={() => setSidebarOpen(false)} />
@@ -772,7 +1157,6 @@ export function StudentWorkspace({
         </div>
       )}
 
-      {/* Main 100% Area Workspace */}
       <main className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
         {loadingDoc ? (
           <div className="flex-1 flex items-center justify-center text-sm font-semibold text-blue-700">
@@ -787,7 +1171,7 @@ export function StudentWorkspace({
                 className="inline-flex items-center gap-1.5 font-bold text-blue-700 hover:text-blue-900"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                Bumalik sa Mga File
+                Bumalik sa Workspace
               </button>
               <span className="text-[11px] text-slate-500">
                 Huling binago: {formatDateTimeTL(activeDoc.updatedAt)}
@@ -797,12 +1181,15 @@ export function StudentWorkspace({
               <WordEditor
                 document={activeDoc}
                 folders={folders}
-                readOnly={readOnly}
+                initialDrawMode={openInDrawMode}
+                readOnly={readOnly || activeDoc.sharedRole === 'read'}
+                isOwner={!activeDoc.sharedRole}
                 supportStudentId={supportStudentId}
                 onOpenSidebar={() => setSidebarOpen(true)}
                 onSaveDocument={handleSaveDocument}
                 onDeleteDocument={handleDeleteDocument}
                 onNotify={onNotify}
+                onSharesChanged={() => void refreshWorkspace()}
               />
             </div>
           </div>
@@ -845,9 +1232,11 @@ export function StudentWorkspace({
               onUserUpdated(updated);
               onNotify('success', msg);
             }}
+            onLogout={onLogout}
           />
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
+            {/* Top Workspace Header */}
             <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <button
@@ -859,57 +1248,81 @@ export function StudentWorkspace({
                   <Menu className="h-5 w-5" />
                 </button>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 text-base sm:text-lg font-extrabold text-slate-900 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNavSection('all');
-                        setSelectedFolderId(null);
-                      }}
-                      className="hover:text-blue-700"
-                    >
-                      {navSection === 'root' ? 'Pangunahing Lalagyan' : 'Aking mga File'}
-                    </button>
-                    {breadcrumbs.map((b) => (
-                      <span key={b.id} className="flex items-center gap-1.5">
-                        <ChevronRight className="h-4 w-4 text-slate-400" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNavSection('folder');
-                            setSelectedFolderId(b.id);
-                          }}
-                          className="text-blue-700 hover:underline"
-                        >
-                          {b.name}
-                        </button>
-                      </span>
-                    ))}
-                  </div>
+                  {navSection === 'folder' ? (
+                    <div className="flex items-center gap-1.5 text-base sm:text-lg font-extrabold text-slate-900 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNavSection('folders');
+                          setSelectedFolderId(null);
+                        }}
+                        className="hover:text-blue-700"
+                      >
+                        Mga Folder Ko
+                      </button>
+                      {breadcrumbs.map((b) => (
+                        <span key={b.id} className="flex items-center gap-1.5">
+                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNavSection('folder');
+                              setSelectedFolderId(b.id);
+                            }}
+                            className="text-blue-700 hover:underline"
+                          >
+                            {b.name}
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900 truncate">
+                      {sectionHeaderTitle()}
+                    </h2>
+                  )}
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {visibleFolders.length} folder • {visibleDocuments.length} dokumento •
-                    Natitirang storage: <strong>{storage.remainingMB.toFixed(2)} MB</strong>
+                    {documents.length} dokumento • {folders.length} folder • Natitirang storage:{' '}
+                    <strong>{storage.remainingMB.toFixed(2)} MB</strong>
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-72">
+                <div className="relative flex-1 sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Maghanap ng dokumento o folder..."
+                    placeholder="Maghanap ng file..."
                     className="w-full rounded-xl border border-blue-200 bg-blue-50/40 pl-9 pr-3 py-2 text-xs font-medium focus:border-blue-600 focus:bg-white focus:outline-none"
                   />
                 </div>
+
+                <div className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-2.5 py-1.5 text-xs">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-blue-600" />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    aria-label="Ayusin ang mga file"
+                    className="bg-transparent font-semibold text-slate-700 focus:outline-none"
+                  >
+                    <option value="updated">Kamakailang Binago</option>
+                    <option value="opened">Kamakailang Binuksan</option>
+                    <option value="created">Bagong Gawa</option>
+                    <option value="title">Pangalan (A-Z)</option>
+                    <option value="size">Laki ng File</option>
+                  </select>
+                </div>
+
                 {!readOnly && (
                   <button
                     type="button"
                     onClick={() =>
                       void handleCreateDocument(
-                        navSection === 'folder' ? selectedFolderId : null
+                        navSection === 'folder' ? selectedFolderId : null,
+                        false
                       )
                     }
                     className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
@@ -924,198 +1337,332 @@ export function StudentWorkspace({
             <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
               {loadingList ? (
                 <div className="rounded-2xl border border-blue-100 bg-white p-10 text-center text-sm text-slate-500">
-                  Kinukuha ang iyong mga dokumento at folder...
+                  Kinukuha ang iyong workspace...
                 </div>
               ) : (
                 <>
-                  {visibleFolders.length > 0 && (
-                    <section className="space-y-3">
-                      <h2 className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
-                        Mga Folder ({visibleFolders.length})
-                      </h2>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
-                        {visibleFolders.map((folder) => (
-                          <div
-                            key={folder.id}
-                            className="group rounded-2xl border border-blue-100 bg-white p-4 shadow-2xs hover:border-blue-300 hover:shadow-md transition flex flex-col justify-between gap-3"
-                          >
+                  {/* HOME DASHBOARD OVERVIEW */}
+                  {navSection === 'home' && !searchQuery.trim() && (
+                    <>
+                      {/* Quick Access Action Cards */}
+                      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {!readOnly && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void handleCreateDocument(null, false)}
+                              className="group rounded-2xl bg-gradient-to-br from-blue-700 to-blue-600 p-5 text-left text-white shadow-md shadow-blue-600/20 hover:from-blue-800 hover:to-blue-700 transition"
+                            >
+                              <div className="h-10 w-10 rounded-xl bg-white/15 flex items-center justify-center mb-3">
+                                <FilePlus2 className="h-5 w-5" />
+                              </div>
+                              <p className="text-sm font-extrabold">Bagong Blangkong Dokumento</p>
+                              <p className="text-xs text-blue-100 mt-1">
+                                Magsulat at mag-format ng teksto tulad ng Microsoft Word.
+                              </p>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => void handleCreateDocument(null, true)}
+                              className="group rounded-2xl border border-blue-200 bg-white p-5 text-left hover:border-blue-400 hover:shadow-md transition"
+                            >
+                              <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-3">
+                                <Brush className="h-5 w-5" />
+                              </div>
+                              <p className="text-sm font-extrabold text-slate-900">
+                                Bagong Guhit / Doodle
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Gumuhit nang malaya gamit ang panulat, lapis, at mga hugis.
+                              </p>
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => {
-                                setNavSection('folder');
-                                setSelectedFolderId(folder.id);
+                                setEditingFolder(null);
+                                setFolderModalOpen(true);
                               }}
-                              className="flex items-start gap-3 text-left w-full"
+                              className="group rounded-2xl border border-blue-200 bg-white p-5 text-left hover:border-blue-400 hover:shadow-md transition"
                             >
-                              <FolderIconBadge icon={folder.icon} color={folder.color} size="md" />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-bold text-slate-900 truncate group-hover:text-blue-700">
-                                  {folder.name}
-                                </p>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                  {folder.docCount} dokumento • {folder.subfolderCount} subfolder
-                                </p>
-                                <p className="text-[11px] text-slate-400 mt-0.5">
-                                  Laki: {formatBytes(folder.totalBytes)}
-                                </p>
+                              <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                                <FolderPlus className="h-5 w-5" />
                               </div>
+                              <p className="text-sm font-extrabold text-slate-900">
+                                Gumawa ng Bagong Folder
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Ayusin ang iyong mga file gamit ang kulay at icon ng folder.
+                              </p>
                             </button>
+                          </>
+                        )}
+                      </section>
 
-                            <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
-                              {!readOnly && (
+                      {/* Recently Opened & Recently Created */}
+                      <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs overflow-hidden">
+                          <div className="border-b border-blue-100 bg-blue-50/50 px-5 py-3 flex items-center justify-between">
+                            <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                              <Clock className="h-4 w-4 text-blue-600" />
+                              Kamakailang Binuksan
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setNavSection('recent')}
+                              className="text-xs font-bold text-blue-700 hover:underline"
+                            >
+                              Lahat
+                            </button>
+                          </div>
+                          <div className="divide-y divide-slate-100">
+                            {recentlyOpenedDocs.length === 0 ? (
+                              <p className="p-6 text-xs text-slate-400">Wala pang binuksang file.</p>
+                            ) : (
+                              recentlyOpenedDocs.map((d) => (
                                 <button
+                                  key={d.id}
                                   type="button"
-                                  onClick={() => {
-                                    setEditingFolder(folder);
-                                    setFolderModalOpen(true);
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                                  onClick={() => void openDocumentById(d.id)}
+                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-blue-50/40 transition"
                                 >
-                                  <Pencil className="h-3 w-3" />
-                                  I-edit
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <FileText className="h-4 w-4 text-blue-600 shrink-0" />
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-bold text-slate-900 truncate">
+                                        {d.title}
+                                      </p>
+                                      <p className="text-[11px] text-slate-400">
+                                        {d.folderName || 'Pangunahing Lalagyan'} •{' '}
+                                        {formatBytes(d.sizeBytes)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="text-[11px] text-slate-400 shrink-0">
+                                    {formatDateTimeTL(d.lastOpenedAt || d.updatedAt)}
+                                  </span>
                                 </button>
-                              )}
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs overflow-hidden">
+                          <div className="border-b border-blue-100 bg-blue-50/50 px-5 py-3 flex items-center justify-between">
+                            <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                              <FilePlus2 className="h-4 w-4 text-blue-600" />
+                              Kamakailang Ginawa
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSortBy('created');
+                                setNavSection('documents');
+                              }}
+                              className="text-xs font-bold text-blue-700 hover:underline"
+                            >
+                              Lahat
+                            </button>
+                          </div>
+                          <div className="divide-y divide-slate-100">
+                            {recentlyCreatedDocs.length === 0 ? (
+                              <p className="p-6 text-xs text-slate-400">Wala pang ginawang file.</p>
+                            ) : (
+                              recentlyCreatedDocs.map((d) => (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => void openDocumentById(d.id)}
+                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-blue-50/40 transition"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <FileText className="h-4 w-4 text-blue-600 shrink-0" />
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-bold text-slate-900 truncate">
+                                        {d.title}
+                                      </p>
+                                      <p className="text-[11px] text-slate-400">
+                                        {d.wordCount} salita • {formatBytes(d.sizeBytes)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="text-[11px] text-slate-400 shrink-0">
+                                    {formatDateTimeTL(d.createdAt)}
+                                  </span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </section>
+                    </>
+                  )}
+
+                  {/* FOLDERS GRID */}
+                  {(navSection === 'folders' || navSection === 'folder') && (
+                    <section className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h2 className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
+                          Mga Folder ({visibleFolders.length})
+                        </h2>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingFolder(null);
+                              setFolderModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-50"
+                          >
+                            <FolderPlus className="h-3.5 w-3.5" />
+                            Bagong Folder
+                          </button>
+                        )}
+                      </div>
+                      {visibleFolders.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-8 text-center text-xs text-slate-500">
+                          Walang subfolder dito.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
+                          {visibleFolders.map((folder) => (
+                            <div
+                              key={folder.id}
+                              className="group rounded-2xl border border-blue-100 bg-white p-4 shadow-2xs hover:border-blue-300 hover:shadow-md transition flex flex-col justify-between gap-3"
+                            >
                               <button
                                 type="button"
-                                onClick={() => void handleDownloadFolder(folder)}
-                                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+                                onClick={() => {
+                                  setNavSection('folder');
+                                  setSelectedFolderId(folder.id);
+                                }}
+                                className="flex items-start gap-3 text-left w-full"
                               >
-                                <Download className="h-3 w-3" />
-                                I-download (.zip)
+                                <FolderIconBadge icon={folder.icon} color={folder.color} size="md" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-bold text-slate-900 truncate group-hover:text-blue-700">
+                                    {folder.name}
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-0.5">
+                                    {folder.docCount} dokumento • {folder.subfolderCount} subfolder
+                                  </p>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    Laki: {formatBytes(folder.totalBytes)}
+                                  </p>
+                                </div>
                               </button>
-                              {!readOnly && (
+
+                              <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
+                                {!readOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingFolder(folder);
+                                      setFolderModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    I-edit
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => void handleDeleteFolder(folder)}
-                                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
+                                  onClick={() => void handleDownloadFolder(folder)}
+                                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
                                 >
-                                  <Trash2 className="h-3 w-3" />
-                                  Burahin
+                                  <Download className="h-3 w-3" />
+                                  .zip
                                 </button>
-                              )}
+                                {!readOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteFolder(folder)}
+                                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                    Burahin
+                                  </button>
+                                )}
+                              </div>
                             </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  )}
+
+                  {/* SHARED BY ME LIST */}
+                  {navSection === 'shared' && sharedByMe.length > 0 && (
+                    <section className="space-y-2.5">
+                      <h2 className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
+                        Mga Dokumentong Ibinahagi Mo ({sharedByMe.length})
+                      </h2>
+                      <div className="divide-y divide-slate-100 rounded-2xl border border-blue-100 bg-white overflow-hidden">
+                        {sharedByMe.map((s) => (
+                          <div
+                            key={s.shareId}
+                            className="px-4 py-3 flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div>
+                              <p className="font-bold text-slate-900">{s.title}</p>
+                              <p className="text-slate-500">
+                                Ibinahagi kay: <strong>{s.recipientName}</strong> ({s.recipientEmail}
+                                ) •{' '}
+                                {s.permissionLevel === 'read_write'
+                                  ? 'Maaaring Mag-edit'
+                                  : 'Basahin Lamang'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void openDocumentById(s.documentId)}
+                              className="rounded-lg bg-blue-50 px-3 py-1 font-bold text-blue-700 hover:bg-blue-100"
+                            >
+                              Buksan
+                            </button>
                           </div>
                         ))}
                       </div>
                     </section>
                   )}
 
-                  <section className="space-y-3">
-                    <h2 className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
-                      Mga Dokumento ({visibleDocuments.length})
-                    </h2>
-                    {visibleDocuments.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-12 text-center">
-                        <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                          <FileText className="h-6 w-6" />
-                        </div>
-                        <h3 className="text-sm font-bold text-slate-900">
-                          Wala pang dokumento rito
-                        </h3>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Gumawa ng bagong dokumento upang magsimulang magsulat o gumuhit ng doodle.
-                        </p>
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void handleCreateDocument(
-                                navSection === 'folder' ? selectedFolderId : null
-                              )
-                            }
-                            className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700"
-                          >
-                            <FilePlus2 className="h-4 w-4" />
-                            Gumawa ng Unang Dokumento
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
-                        {visibleDocuments.map((doc) => (
-                          <div
-                            key={doc.id}
-                            className="group rounded-2xl border border-blue-100 bg-white p-4 shadow-2xs hover:border-blue-300 hover:shadow-md transition flex flex-col justify-between gap-3"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => void openDocumentById(doc.id)}
-                              className="text-left space-y-2 w-full"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                                    <FileText className="h-5 w-5" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <h3 className="text-sm font-bold text-slate-900 truncate group-hover:text-blue-700">
-                                      {doc.title}
-                                    </h3>
-                                    <p className="text-[11px] text-slate-400 truncate">
-                                      {doc.folderName || 'Pangunahing Lalagyan'}
-                                    </p>
-                                  </div>
-                                </div>
-                                <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-                                  {formatBytes(doc.sizeBytes)}
-                                </span>
-                              </div>
-
-                              <p className="text-xs text-slate-600 line-clamp-2 min-h-[32px]">
-                                {doc.previewText || 'Walang lamang teksto pa...'}
-                              </p>
-
-                              <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                                <span>{doc.wordCount} salita</span>
-                                {doc.doodleCount > 0 && (
-                                  <span className="inline-flex items-center gap-1 text-blue-600 font-semibold">
-                                    <PenTool className="h-3 w-3" />
-                                    {doc.doodleCount} guhit
-                                  </span>
-                                )}
-                                <span className="ml-auto">{formatDateTimeTL(doc.updatedAt)}</span>
-                              </div>
-                            </button>
-
-                            <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
-                              <button
-                                type="button"
-                                onClick={() => void openDocumentById(doc.id)}
-                                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
-                              >
-                                <Pencil className="h-3 w-3" />
-                                {readOnly ? 'Buksan' : 'I-edit'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void triggerDownload(
-                                    `/api/documents/${doc.id}/download?format=doc`,
-                                    `${doc.title}.doc`,
-                                    supportStudentId
-                                  )
-                                }
-                                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
-                              >
-                                <Download className="h-3 w-3" />
-                                I-download
-                              </button>
-                              {!readOnly && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleDeleteDocument(doc.id)}
-                                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                  Burahin
-                                </button>
-                              )}
-                            </div>
+                  {/* DOCUMENTS LISTING (Shown on Home, Documents, Folder, Recent, Favorites, Shared) */}
+                  {navSection !== 'folders' && (
+                    <section className="space-y-3">
+                      <h2 className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
+                        {navSection === 'shared'
+                          ? `Mga Dokumentong Ibinahagi sa Iyo (${visibleDocuments.length})`
+                          : `Lahat ng Dokumento (${visibleDocuments.length})`}
+                      </h2>
+                      {visibleDocuments.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-10 text-center">
+                          <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                            <FileText className="h-6 w-6" />
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
+                          <h3 className="text-sm font-bold text-slate-900">
+                            {navSection === 'favorites'
+                              ? 'Wala pang paboritong dokumento'
+                              : navSection === 'shared'
+                                ? 'Wala pang dokumentong ibinahagi sa iyo'
+                                : 'Wala pang dokumento rito'}
+                          </h3>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {navSection === 'favorites'
+                              ? 'Pindutin ang bituin sa alinmang dokumento upang mailagay dito.'
+                              : navSection === 'shared'
+                                ? 'Lalabas dito ang mga dokumentong ibinahagi sa iyo ng mga kaklase.'
+                                : 'Gumawa ng bagong dokumento o guhit upang makapagsimula.'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
+                          {visibleDocuments.map(renderDocCard)}
+                        </div>
+                      )}
+                    </section>
+                  )}
                 </>
               )}
             </div>
@@ -1134,6 +1681,51 @@ export function StudentWorkspace({
         }}
         onSubmit={handleSaveFolder}
       />
+
+      {renameTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <form
+            onSubmit={handleRenameSubmit}
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl border border-blue-100 space-y-4"
+          >
+            <h3 className="text-sm font-bold text-slate-900">Palitan ang Pangalan ng Dokumento</h3>
+            <input
+              type="text"
+              autoFocus
+              required
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className="w-full rounded-xl border border-blue-200 px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRenameTarget(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+              >
+                Kanselahin
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700"
+              >
+                I-save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {shareDocTarget && (
+        <ShareModal
+          isOpen={Boolean(shareDocTarget)}
+          documentId={shareDocTarget.id}
+          documentTitle={shareDocTarget.title}
+          onClose={() => setShareDocTarget(null)}
+          onNotify={onNotify}
+          onChanged={() => void refreshWorkspace()}
+        />
+      )}
     </div>
   );
 }

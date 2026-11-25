@@ -1,6 +1,14 @@
 export type UserRole = 'student' | 'admin';
 export type AccountStatus = 'active' | 'suspended' | 'inactive';
 
+export interface NotificationSettings {
+  notifyAutoSave: boolean;
+  notifyStorageAlerts: boolean;
+  notifyShareAlerts: boolean;
+  notifyPrivacyRequests: boolean;
+  defaultDownloadFormat: 'docx' | 'pdf' | 'doc' | 'html' | 'txt';
+}
+
 export interface User {
   id: string;
   email: string;
@@ -11,6 +19,7 @@ export interface User {
   status: AccountStatus;
   storageQuotaBytes: number;
   storageUsedBytes: number;
+  notificationSettings?: NotificationSettings;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -66,12 +75,28 @@ export interface Folder {
   updatedAt: string;
 }
 
+export type DrawingTool =
+  | 'pen'
+  | 'pencil'
+  | 'highlighter'
+  | 'eraser'
+  | 'line'
+  | 'arrow'
+  | 'rect'
+  | 'circle'
+  | 'triangle';
+
 export interface DoodleStroke {
-  tool: 'pen' | 'highlighter' | 'eraser' | 'line' | 'rect' | 'circle';
+  tool: DrawingTool;
   color: string;
   width: number;
   opacity: number;
   points: Array<{ x: number; y: number }>;
+}
+
+export interface PageDoodleLayer {
+  strokes: DoodleStroke[];
+  dataUrl: string;
 }
 
 export interface DoodleItem {
@@ -89,6 +114,7 @@ export interface PageSettings {
   orientation: 'portrait' | 'landscape';
   margins: 'normal' | 'narrow' | 'wide';
   pageColor: string;
+  lineHeight?: string;
 }
 
 export interface DocumentSummary {
@@ -100,14 +126,38 @@ export interface DocumentSummary {
   doodleCount: number;
   wordCount: number;
   sizeBytes: number;
+  isFavorite: boolean;
+  lastOpenedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  sharedRole?: 'read' | 'read_write' | null;
+  ownerName?: string | null;
+  ownerEmail?: string | null;
 }
 
 export interface DocumentFull extends DocumentSummary {
   contentHtml: string;
   doodles: DoodleItem[];
+  pageDoodle: PageDoodleLayer;
   pageSettings: PageSettings;
+}
+
+export interface DocumentShareItem {
+  id: string;
+  permissionLevel: 'read' | 'read_write';
+  recipientName: string;
+  recipientEmail: string;
+  createdAt: string;
+}
+
+export interface SharedByMeItem {
+  shareId: string;
+  documentId: string;
+  title: string;
+  permissionLevel: 'read' | 'read_write';
+  recipientName: string;
+  recipientEmail: string;
+  sharedAt: string;
 }
 
 export interface TrashFolder {

@@ -5,14 +5,13 @@ Ang **Tintalata** ay isang makabagong aplikasyon sa pag-edit ng dokumento (katul
 ## Mga Pangunahing Tampok
 
 - **Patnugot ng Dokumento (Tulad ng Microsoft Word):**
-  - Pagpili ng uri at laki ng font, makapal (*bold*), pahilig (*italic*), may salungguhit, kulay ng teksto at *highlight*, pagkakahanay, mga listahan, *indent*, talahanayan, mga *link*, larawan, at *Find & Replace*.
-  - *Auto-save*, bilang ng salita at karakter, *zoom*, at *Print / Save as PDF*.
-- **Studio ng Pagguhit (Doodle):**
-  - Malayang pagguhit gamit ang *mouse*, *touch*, o *stylus* (Panulat, Highlighter, Pambura, Linya, Parihaba, Bilog).
-  - Maaaring ilagay nang direkta sa dokumento at i-edit muli anumang oras.
-- **Nako-customize na mga Folder at Pag-download:**
-  - Lumikha ng mga folder at *subfolder* na may napiling kulay at *icon*.
-  - Bawat dokumento ay maaaring i-download bilang `.doc` (Microsoft Word), `.html`, o `.txt`.
+  - Pagpili ng uri at laki ng font, espasyo ng linya (*line spacing*), makapal (*bold*), pahilig (*italic*), may salungguhit, kulay ng teksto at *highlight*, pagkakahanay, mga listahan, *indent*, talahanayan, mga *link*, larawan, at *Find & Replace*.
+  - *Auto-save*, bilang ng salita at karakter, *zoom*, at *Print*.
+- **Direktang Pagguhit at Studio ng Doodle:**
+  - Gumuhit nang direkta sa ibabaw ng dokumento (*Gumuhit sa Pahina*) o maglagay ng hiwalay na *Doodle Box* gamit ang *mouse*, *touch*, o *stylus* (Panulat, Lapis, Highlighter, Pambura, Linya, Palaso, Parihaba, Bilog, Tatsulok).
+- **Nako-customize na mga Folder, Pagbabahagi, at Pag-download (.docx / .pdf / .zip):**
+  - Lumikha at mag-organisa ng mga folder at *subfolder*, markahan ang **Mga Paborito**, at magbahagi ng dokumento sa **Mga Ibinahaging Dokumento**.
+  - Bawat dokumento ay maaaring i-download bilang `.docx` (Microsoft Word), `.pdf`, `.doc`, `.html`, o `.txt`.
   - Bawat folder ay maaaring i-download bilang `.zip` na naglalaman ng lahat ng dokumento at subfolder nito.
 - **Basurahan (Recycle Bin):**
   - Nakahiwalay na seksyon para sa mga naburang dokumento at folder na maaaring **Ibalik** o **Burahin Nang Tuluyan**.

@@ -228,7 +228,7 @@ export function createFoldersRouter(db) {
       .prepare('SELECT * FROM documents WHERE user_id = ? AND is_deleted = 0')
       .all(ownerId);
 
-    const format = req.query.format || 'doc';
+    const format = req.query.format || 'docx';
     const { filename, buffer } = await buildFolderZipBuffer(folder, allFolders, allDocs, format);
 
     res.setHeader('Content-Type', 'application/zip');
