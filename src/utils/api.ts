@@ -26,13 +26,19 @@ export async function apiRequest<T>(
     credentials: 'include',
     headers,
     ...rest,
+  }).catch(() => {
+    throw new ApiError(
+      0,
+      'Hindi makakonekta sa server ng Tintalata. Pakitiyak na tumatakbo ang aplikasyon.'
+    );
   });
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new ApiError(
       res.status,
-      data?.error || 'May naganap na error habang nakikipag-ugnayan sa server.'
+      data?.error ||
+        `Nagkaroon ng problema sa koneksyon sa server (Code ${res.status}). Pakisubukang muli.`
     );
   }
   return data as T;

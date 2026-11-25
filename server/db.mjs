@@ -95,11 +95,24 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS password_reset_requests (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      student_number TEXT DEFAULT '',
+      reason TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved', 'dismissed')),
+      created_at TEXT NOT NULL,
+      resolved_at TEXT,
+      resolved_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
     CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id, is_deleted);
     CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_id, is_deleted);
     CREATE INDEX IF NOT EXISTS idx_access_grants_student ON access_grants(student_id, status);
     CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_status ON password_reset_requests(status, created_at);
   `);
 
   seedDefaultAdmin(db);

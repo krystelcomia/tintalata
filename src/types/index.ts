@@ -195,6 +195,19 @@ export interface AdminStudent {
   };
 }
 
+export interface PasswordResetRequest {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  studentNumber: string;
+  courseSection: string;
+  reason: string;
+  status: 'pending' | 'resolved' | 'dismissed';
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface ToastMessage {
   id: string;
   type: 'success' | 'error' | 'info';

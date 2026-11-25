@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Tintalata — Aplikasyon sa Pag-edit ng Dokumento at Pagguhit (Filipino / Tagalog)",
   "scripts": {
-    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "vite",
     "dev:server": "node --no-warnings --watch server/index.mjs",
     "dev:client": "vite",
     "build": "tsc -b && vite build",

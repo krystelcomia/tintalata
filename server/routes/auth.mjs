@@ -102,10 +102,9 @@ export function createAuthRouter(db) {
         error: 'Mangyaring maglagay ng wastong email address.',
       });
     }
-    if (rawPassword.length < 8 || !/[a-zA-Z]/.test(rawPassword) || !/\d/.test(rawPassword)) {
+    if (rawPassword.length < 8) {
       return res.status(400).json({
-        error:
-          'Ang password ay dapat may hindi bababa sa 8 karakter at naglalaman ng parehong titik at numero.',
+        error: 'Ang password ay dapat may hindi bababa sa 8 karakter.',
       });
     }
     if (cleanStudentNum.length > 40 || cleanCourse.length > 80) {
@@ -176,20 +175,23 @@ export function createAuthRouter(db) {
   });
 
   router.post('/login', (req, res) => {
-    const { email = '', password = '' } = req.body || {};
+    const { email = '', password = '', rememberMe = true } = req.body || {};
     const cleanEmail = String(email).trim().toLowerCase();
     const rawPassword = String(password);
 
     if (!cleanEmail || !rawPassword) {
       return res.status(400).json({
-        error: 'Mangyaring ilagay ang iyong email at password.',
+        error: 'Mangyaring ilagay ang iyong email o numero ng mag-aaral at password.',
       });
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(cleanEmail);
+    // Allow login via email OR student_number for student convenience
+    const user = db
+      .prepare('SELECT * FROM users WHERE email = ? OR (student_number != \'\' AND LOWER(student_number) = ?)')
+      .get(cleanEmail, cleanEmail);
     if (!user || !verifyPassword(rawPassword, user.password_hash)) {
       return res.status(401).json({
-        error: 'Mali ang email o password na iyong inilagay.',
+        error: 'Mali ang email/username o password na iyong inilagay.',
       });
     }
 
@@ -211,8 +213,9 @@ export function createAuthRouter(db) {
       user.id
     );
 
+    const ttlMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : CONFIG.SESSION_TTL_MS;
     const { cookieValue, tokenHash } = generateSessionToken();
-    const expiresAt = new Date(Date.now() + CONFIG.SESSION_TTL_MS).toISOString();
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
     db.prepare(
       `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, user_agent)
        VALUES (?, ?, ?, ?, ?, ?)`
@@ -228,9 +231,56 @@ export function createAuthRouter(db) {
     setSessionCookie(res, cookieValue);
     const refreshed = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
     return res.json({
-      message: 'Matagumpay kang naka-log in!',
+      message:
+        refreshed.role === 'admin'
+          ? 'Maligayang pagbabalik, Tagapangasiwa!'
+          : 'Matagumpay kang naka-log in!',
       user: sanitizeUserPayload(refreshed),
       storage: getStorageSummary(db, user.id),
+    });
+  });
+
+  router.post('/forgot-password', (req, res) => {
+    const { email = '', studentNumber = '', reason = '' } = req.body || {};
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanStudentNumber = String(studentNumber).trim();
+    const cleanReason = String(reason).trim().slice(0, 240);
+
+    if (!EMAIL_RE.test(cleanEmail)) {
+      return res.status(400).json({
+        error: 'Mangyaring ilagay ang wastong email address ng iyong account.',
+      });
+    }
+
+    const user = db
+      .prepare("SELECT id, email, student_number FROM users WHERE email = ? AND role = 'student'")
+      .get(cleanEmail);
+
+    if (user) {
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO password_reset_requests (id, user_id, email, student_number, reason, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+      ).run(
+        crypto.randomUUID(),
+        user.id,
+        user.email,
+        cleanStudentNumber || user.student_number || '',
+        cleanReason || 'Kahilingan sa pag-reset ng nakalimutang password',
+        now
+      );
+
+      logAudit(db, {
+        actorId: user.id,
+        targetUserId: user.id,
+        action: 'STUDENT_PASSWORD_RESET_REQUESTED',
+        details: `Nagpadala ng kahilingan sa pag-reset ng password (${user.email})`,
+      });
+    }
+
+    return res.json({
+      message:
+        'Kung nakarehistro ang email sa sistema, naipadala na ang iyong kahilingan sa Tagapangasiwa para sa pag-reset ng password.',
     });
   });
 
@@ -294,10 +344,9 @@ export function createAuthRouter(db) {
         });
       }
       const nextPass = String(newPassword);
-      if (nextPass.length < 8 || !/[a-zA-Z]/.test(nextPass) || !/\d/.test(nextPass)) {
+      if (nextPass.length < 8) {
         return res.status(400).json({
-          error:
-            'Ang bagong password ay dapat may hindi bababa sa 8 karakter at may titik at numero.',
+          error: 'Ang bagong password ay dapat may hindi bababa sa 8 karakter.',
         });
       }
       passwordHash = hashPassword(nextPass);

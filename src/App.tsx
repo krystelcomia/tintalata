@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AdminStudent, StorageSummary, ToastMessage, User } from './types';
 import { apiRequest } from './utils/api';
-import { AuthPage } from './components/AuthPage';
+import { AuthPage, type AuthRouteMode } from './components/AuthPage';
 import { StudentWorkspace } from './components/StudentWorkspace';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ToastContainer } from './components/ToastContainer';
+import { TintalataLogo } from './components/TintalataLogo';
+
+function normalizePath(pathname: string): string {
+  if (!pathname || pathname === '/') return '/';
+  return pathname.replace(/\/+$/, '') || '/';
+}
+
+function getAuthModeFromPath(pathname: string): AuthRouteMode {
+  if (pathname === '/register') return 'register';
+  if (pathname === '/forgot-password') return 'forgot-password';
+  return 'login';
+}
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -12,9 +24,32 @@ export function App() {
   const [pendingGrants, setPendingGrants] = useState(0);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [pathname, setPathname] = useState<string>(() =>
+    normalizePath(window.location.pathname)
+  );
 
   // When an admin opens a student's workspace under explicit student authorization
   const [supportStudent, setSupportStudent] = useState<AdminStudent | null>(null);
+
+  const navigate = useCallback((to: string, { replace = false } = {}) => {
+    const clean = normalizePath(to);
+    if (normalizePath(window.location.pathname) !== clean) {
+      if (replace) {
+        window.history.replaceState({}, '', clean);
+      } else {
+        window.history.pushState({}, '', clean);
+      }
+    }
+    setPathname(clean);
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setPathname(normalizePath(window.location.pathname));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const notify = useCallback((type: 'success' | 'error' | 'info', text: string) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -41,11 +76,55 @@ export function App() {
       .finally(() => setBootstrapping(false));
   }, []);
 
+  // Strict route & role guard with automatic redirection
+  useEffect(() => {
+    if (bootstrapping) return;
+
+    const isAuthRoute =
+      pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
+    const isAdminRoute = pathname.startsWith('/admin');
+    const isStudentRoute =
+      pathname.startsWith('/dashboard') ||
+      pathname.startsWith('/trash') ||
+      pathname.startsWith('/storage') ||
+      pathname.startsWith('/privacy') ||
+      pathname.startsWith('/profile');
+
+    if (!user || !storage) {
+      if (!isAuthRoute) {
+        if (isAdminRoute || isStudentRoute) {
+          notify('error', 'Kailangan munang mag-log in upang mabuksan ang dashboard.');
+        }
+        navigate('/login', { replace: true });
+      }
+      return;
+    }
+
+    if (user.role === 'admin') {
+      if (!isAdminRoute) {
+        navigate('/admin', { replace: true });
+      }
+      return;
+    }
+
+    // Student role guard
+    if (isAdminRoute) {
+      notify('error', 'Walang pahintulot: Ang Admin Dashboard ay para lamang sa Tagapangasiwa.');
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+
+    if (isAuthRoute || pathname === '/') {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [bootstrapping, user, storage, pathname, navigate, notify]);
+
   const handleAuthSuccess = (nextUser: User, nextStorage: StorageSummary, message: string) => {
     setUser(nextUser);
     setStorage(nextStorage);
     setSupportStudent(null);
     notify('success', message);
+    navigate(nextUser.role === 'admin' ? '/admin' : '/dashboard', { replace: true });
   };
 
   const handleLogout = async () => {
@@ -58,14 +137,18 @@ export function App() {
     setUser(null);
     setStorage(null);
     setSupportStudent(null);
+    navigate('/login', { replace: true });
   };
 
   if (bootstrapping) {
     return (
-      <div className="min-h-screen bg-[#f4f8ff] flex items-center justify-center">
-        <div className="text-center space-y-2">
-          <div className="mx-auto h-10 w-10 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
-          <p className="text-sm font-semibold text-blue-800">Inihahanda ang Tintalata...</p>
+      <div className="h-screen w-screen bg-gradient-to-br from-[#f4f8ff] via-white to-[#e8f1ff] flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="flex justify-center">
+            <TintalataLogo size="lg" />
+          </div>
+          <div className="mx-auto h-8 w-8 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
+          <p className="text-sm font-bold text-blue-900">Inihahanda ang Tintalata...</p>
         </div>
       </div>
     );
@@ -74,7 +157,12 @@ export function App() {
   return (
     <>
       {!user || !storage ? (
-        <AuthPage onSuccess={handleAuthSuccess} />
+        <AuthPage
+          mode={getAuthModeFromPath(pathname)}
+          onNavigateMode={(next) => navigate(`/${next}`)}
+          onSuccess={handleAuthSuccess}
+          onNotify={notify}
+        />
       ) : user.role === 'admin' ? (
         supportStudent && supportStudent.authorization.state === 'approved' ? (
           <StudentWorkspace
@@ -112,7 +200,10 @@ export function App() {
               studentId: supportStudent.id,
               studentName: supportStudent.fullName,
               permissionLevel: supportStudent.authorization.permissionLevel || 'read',
-              onExitSupport: () => setSupportStudent(null),
+              onExitSupport: () => {
+                setSupportStudent(null);
+                navigate('/admin');
+              },
             }}
             onUserUpdated={setUser}
             onLogout={handleLogout}
@@ -122,7 +213,10 @@ export function App() {
           <AdminDashboard
             user={user}
             onLogout={handleLogout}
-            onOpenAuthorizedWorkspace={(student) => setSupportStudent(student)}
+            onOpenAuthorizedWorkspace={(student) => {
+              setSupportStudent(student);
+              navigate(`/admin/support/${student.id}`);
+            }}
             onNotify={notify}
           />
         )

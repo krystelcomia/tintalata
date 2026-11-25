@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { requireAuth, requireRole } from '../middleware/auth.mjs';
 import { getStorageSummary } from '../utils/storage.mjs';
+import { hashPassword } from '../utils/crypto.mjs';
 import { logAudit } from '../db.mjs';
 
 function expireStaleGrants(db) {
@@ -370,6 +371,86 @@ export function createAdminRouter(db) {
         details: l.details,
         createdAt: l.created_at,
       })),
+    });
+  });
+
+  router.get('/password-resets', (_req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT r.*, u.full_name, u.student_number AS actual_student_number, u.course_section
+         FROM password_reset_requests r
+         JOIN users u ON u.id = r.user_id
+         ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END, r.created_at DESC
+         LIMIT 50`
+      )
+      .all();
+
+    return res.json({
+      requests: rows.map((r) => ({
+        id: r.id,
+        userId: r.user_id,
+        fullName: r.full_name,
+        email: r.email,
+        studentNumber: r.student_number || r.actual_student_number || '',
+        courseSection: r.course_section || '',
+        reason: r.reason,
+        status: r.status,
+        createdAt: r.created_at,
+        resolvedAt: r.resolved_at,
+      })),
+    });
+  });
+
+  router.post('/password-resets/:id/resolve', (req, res) => {
+    const requestRow = db
+      .prepare("SELECT * FROM password_reset_requests WHERE id = ? AND status = 'pending'")
+      .get(req.params.id);
+
+    if (!requestRow) {
+      return res.status(404).json({ error: 'Hindi natagpuan ang nakabinbing kahilingan.' });
+    }
+
+    const { action = 'reset', newPassword = '' } = req.body || {};
+    const now = new Date().toISOString();
+
+    if (action === 'dismiss') {
+      db.prepare(
+        `UPDATE password_reset_requests
+         SET status = 'dismissed', resolved_at = ?, resolved_by_admin_id = ?
+         WHERE id = ?`
+      ).run(now, req.user.id, requestRow.id);
+
+      return res.json({ message: 'Isinara ang kahilingan sa pag-reset ng password.' });
+    }
+
+    const cleanPassword = String(newPassword);
+    if (cleanPassword.length < 8) {
+      return res.status(400).json({
+        error: 'Ang pansamantalang password ay dapat may hindi bababa sa 8 karakter.',
+      });
+    }
+
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
+      hashPassword(cleanPassword),
+      now,
+      requestRow.user_id
+    );
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(requestRow.user_id);
+    db.prepare(
+      `UPDATE password_reset_requests
+       SET status = 'resolved', resolved_at = ?, resolved_by_admin_id = ?
+       WHERE id = ?`
+    ).run(now, req.user.id, requestRow.id);
+
+    logAudit(db, {
+      actorId: req.user.id,
+      targetUserId: requestRow.user_id,
+      action: 'ADMIN_RESET_STUDENT_PASSWORD',
+      details: `Nag-reset ng password para kay ${requestRow.email}`,
+    });
+
+    return res.json({
+      message: `Matagumpay na na-reset ang password para kay ${requestRow.email}.`,
     });
   });
 

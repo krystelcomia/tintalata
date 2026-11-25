@@ -327,4 +327,60 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   const emptied = await studentA.request('/api/trash', { method: 'DELETE' });
   assert.equal(emptied.status, 200);
   assert.equal(emptied.body.storage.trashBytes, 0);
+
+  // 11. Letters-only >=8 char password registration + studentNumber login + forgot password reset flow
+  const studentC = new CookieClient(baseUrl);
+  const regC = await studentC.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Krystel Comia',
+      email: 'krystel@paaralan.ph',
+      password: 'krystelkrystel',
+      studentNumber: '20232024317',
+      courseSection: 'BSIS',
+    }),
+  });
+  assert.equal(regC.status, 201);
+
+  const loginByStudentNum = await studentC.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: '20232024317',
+      password: 'krystelkrystel',
+      rememberMe: true,
+    }),
+  });
+  assert.equal(loginByStudentNum.status, 200);
+
+  const forgotReq = await studentC.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'krystel@paaralan.ph',
+      studentNumber: '20232024317',
+      reason: 'Nakalimutan ang password',
+    }),
+  });
+  assert.equal(forgotReq.status, 200);
+
+  const resetList = await admin.request('/api/admin/password-resets');
+  assert.equal(resetList.status, 200);
+  const pendingReset = resetList.body.requests.find(
+    (r) => r.email === 'krystel@paaralan.ph' && r.status === 'pending'
+  );
+  assert.ok(pendingReset);
+
+  const resolveReset = await admin.request(`/api/admin/password-resets/${pendingReset.id}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'reset', newPassword: 'NewTempPassword1' }),
+  });
+  assert.equal(resolveReset.status, 200);
+
+  const loginWithNewPass = await studentC.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'krystel@paaralan.ph',
+      password: 'NewTempPassword1',
+    }),
+  });
+  assert.equal(loginWithNewPass.status, 200);
 });

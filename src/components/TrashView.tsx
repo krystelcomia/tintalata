@@ -97,7 +97,7 @@ export function TrashView({
             Kinukuha ang laman ng Basurahan...
           </div>
         ) : totalItems === 0 ? (
-          <div className="mx-auto max-w-md rounded-3xl border border-dashed border-blue-200 bg-white p-10 text-center">
+          <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-12 text-center">
             <div className="mx-auto mb-3 h-14 w-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
               <Trash2 className="h-7 w-7" />
             </div>

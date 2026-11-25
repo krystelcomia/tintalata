@@ -35,11 +35,12 @@ import type {
 import { apiRequest, formatBytes, formatDateTimeTL, triggerDownload } from '../utils/api';
 import { FolderIconBadge } from './FolderIconBadge';
 import { FolderModal } from './FolderModal';
-import { StorageModal } from './StorageModal';
-import { PrivacyModal } from './PrivacyModal';
-import { ProfileModal } from './ProfileModal';
 import { WordEditor } from './WordEditor';
 import { TrashView } from './TrashView';
+import { StoragePageView } from './StoragePageView';
+import { PrivacyPageView } from './PrivacyPageView';
+import { ProfilePageView } from './ProfilePageView';
+import { TintalataLogo } from './TintalataLogo';
 
 interface StudentWorkspaceProps {
   currentUser: User;
@@ -56,7 +57,7 @@ interface StudentWorkspaceProps {
   onNotify: (type: 'success' | 'error' | 'info', text: string) => void;
 }
 
-type NavSection = 'all' | 'root' | 'folder' | 'trash';
+type NavSection = 'all' | 'root' | 'folder' | 'trash' | 'storage' | 'privacy' | 'profile';
 
 export function StudentWorkspace({
   currentUser,
@@ -90,9 +91,6 @@ export function StudentWorkspace({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
-  const [storageModalOpen, setStorageModalOpen] = useState(false);
-  const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
-  const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [pendingGrants, setPendingGrants] = useState(initialPendingGrants);
 
   const refreshWorkspace = async () => {
@@ -305,7 +303,6 @@ export function StudentWorkspace({
     }
   };
 
-  // Trash actions
   const handleRestoreFolder = async (id: string) => {
     const res = await apiRequest<{ message: string; storage: StorageSummary }>(
       `/api/trash/folders/${id}/restore`,
@@ -351,9 +348,7 @@ export function StudentWorkspace({
     await refreshWorkspace();
   };
 
-  // Filtered documents & folders for current list view
   const folderMap = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
-
   const activeFolder = selectedFolderId ? folderMap.get(selectedFolderId) || null : null;
 
   const breadcrumbs = useMemo(() => {
@@ -369,7 +364,7 @@ export function StudentWorkspace({
   }, [activeFolder, folderMap]);
 
   const visibleFolders = useMemo(() => {
-    if (navSection === 'trash' || navSection === 'root') return [];
+    if (navSection !== 'all' && navSection !== 'folder') return [];
     const targetParent = navSection === 'folder' ? selectedFolderId : null;
     const base =
       navSection === 'all' && !searchQuery.trim()
@@ -390,8 +385,7 @@ export function StudentWorkspace({
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
-        (d) =>
-          d.title.toLowerCase().includes(q) || d.previewText.toLowerCase().includes(q)
+        (d) => d.title.toLowerCase().includes(q) || d.previewText.toLowerCase().includes(q)
       );
     }
     return list;
@@ -399,7 +393,6 @@ export function StudentWorkspace({
 
   const trashTotalCount = trashFolders.length + trashDocs.length;
 
-  // Build hierarchical tree for sidebar
   const renderFolderTree = (parentId: string | null = null, depth = 0) => {
     const children = folders.filter((f) => f.parentId === parentId);
     if (children.length === 0) return null;
@@ -482,18 +475,21 @@ export function StudentWorkspace({
         ? 'bg-amber-500'
         : 'bg-blue-600';
 
+  const navItemClass = (active: boolean) =>
+    `w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition ${
+      active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:bg-blue-50'
+    }`;
+
   const sidebarContent = (
     <div className="flex h-full flex-col bg-white border-r border-blue-100">
-      {/* Brand + User */}
-      <div className="bg-gradient-to-br from-blue-800 to-blue-600 p-4 text-white">
+      {/* Brand Header */}
+      <div className="bg-gradient-to-br from-blue-800 via-blue-700 to-blue-600 p-4 text-white">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center">
-              <FileText className="h-5 w-5 text-white" />
-            </div>
+            <TintalataLogo size="sm" variant="light" />
             <div>
               <h1 className="text-base font-extrabold leading-none">Tintalata</h1>
-              <p className="text-[11px] text-blue-100 mt-0.5">Patnugot at Guhit</p>
+              <p className="text-[11px] text-blue-100 mt-0.5">Espasyo ng Mag-aaral</p>
             </div>
           </div>
           <button
@@ -513,46 +509,35 @@ export function StudentWorkspace({
             <button
               type="button"
               onClick={supportContext.onExitSupport}
-              className="mt-2 w-full rounded-lg bg-white text-blue-900 py-1 font-bold text-[11px] hover:bg-blue-50"
+              className="mt-2 w-full rounded-lg bg-white text-blue-900 py-1.5 font-bold text-[11px] hover:bg-blue-50"
             >
               Bumalik sa Admin Dashboard
             </button>
           </div>
         ) : (
-          <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-white/10 px-3 py-2 border border-white/15">
-            <button
-              type="button"
-              onClick={() => setProfileModalOpen(true)}
-              className="flex items-center gap-2 min-w-0 text-left hover:opacity-90"
-            >
-              <div className="h-7 w-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
-                <UserIcon className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold truncate">{currentUser.fullName}</p>
-                <p className="text-[10px] text-blue-100 truncate">
-                  {currentUser.courseSection || currentUser.email}
-                </p>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPrivacyModalOpen(true)}
-              title="Sentro ng Pagkapribado"
-              className="relative rounded-lg bg-white/15 p-1.5 hover:bg-white/25 shrink-0"
-            >
-              <ShieldCheck className="h-4 w-4" />
-              {pendingGrants > 0 && (
-                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-400 text-[10px] font-extrabold text-slate-900 flex items-center justify-center">
-                  {pendingGrants}
-                </span>
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveDoc(null);
+              setNavSection('profile');
+              setSidebarOpen(false);
+            }}
+            className="mt-3 w-full flex items-center gap-2.5 rounded-xl bg-white/10 hover:bg-white/15 px-3 py-2 border border-white/15 text-left transition"
+          >
+            <div className="h-8 w-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+              <UserIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold truncate">{currentUser.fullName}</p>
+              <p className="text-[10px] text-blue-100 truncate">
+                {currentUser.courseSection || currentUser.email}
+              </p>
+            </div>
+          </button>
         )}
       </div>
 
-      {/* Primary Action Buttons */}
+      {/* Quick Create Buttons */}
       {!readOnly && (
         <div className="p-3 grid grid-cols-2 gap-2 border-b border-blue-50">
           <button
@@ -579,90 +564,81 @@ export function StudentWorkspace({
         </div>
       )}
 
-      {/* Navigation Links */}
+      {/* Organized Sidebar Navigation */}
       <div className="flex-1 overflow-y-auto p-3 space-y-5">
-        <nav className="space-y-1">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveDoc(null);
-              setNavSection('all');
-              setSelectedFolderId(null);
-              setSidebarOpen(false);
-            }}
-            className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition ${
-              navSection === 'all' && !activeDoc
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-blue-50'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Layers className="h-4 w-4" />
-              Lahat ng Dokumento
-            </span>
-            <span className="text-[11px] opacity-80">{documents.length}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveDoc(null);
-              setNavSection('root');
-              setSelectedFolderId(null);
-              setSidebarOpen(false);
-            }}
-            className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition ${
-              navSection === 'root' && !activeDoc
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-blue-50'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <FolderOpen className="h-4 w-4" />
-              Pangunahing Lalagyan
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveDoc(null);
-              setNavSection('trash');
-              setSelectedFolderId(null);
-              setSidebarOpen(false);
-              void refreshTrash();
-            }}
-            className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition ${
-              navSection === 'trash' && !activeDoc
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-blue-50'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Trash2 className="h-4 w-4" />
-              Basurahan
-            </span>
-            {trashTotalCount > 0 && (
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
-                  navSection === 'trash' && !activeDoc
-                    ? 'bg-white/25 text-white'
-                    : 'bg-blue-100 text-blue-800'
-                }`}
-              >
-                {trashTotalCount}
+        <div>
+          <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
+            Espasyo ng Trabaho
+          </p>
+          <nav className="space-y-1">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDoc(null);
+                setNavSection('all');
+                setSelectedFolderId(null);
+                setSidebarOpen(false);
+              }}
+              className={navItemClass(navSection === 'all' && !activeDoc)}
+            >
+              <span className="flex items-center gap-2">
+                <Layers className="h-4 w-4" />
+                Lahat ng Dokumento
               </span>
-            )}
-          </button>
-        </nav>
+              <span className="text-[11px] opacity-80">{documents.length}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDoc(null);
+                setNavSection('root');
+                setSelectedFolderId(null);
+                setSidebarOpen(false);
+              }}
+              className={navItemClass(navSection === 'root' && !activeDoc)}
+            >
+              <span className="flex items-center gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Pangunahing Lalagyan
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDoc(null);
+                setNavSection('trash');
+                setSelectedFolderId(null);
+                setSidebarOpen(false);
+                void refreshTrash();
+              }}
+              className={navItemClass(navSection === 'trash' && !activeDoc)}
+            >
+              <span className="flex items-center gap-2">
+                <Trash2 className="h-4 w-4" />
+                Basurahan
+              </span>
+              {trashTotalCount > 0 && (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
+                    navSection === 'trash' && !activeDoc
+                      ? 'bg-white/25 text-white'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}
+                >
+                  {trashTotalCount}
+                </span>
+              )}
+            </button>
+          </nav>
+        </div>
 
         {/* Customizable Folder Tree */}
         <div>
-          <div className="flex items-center justify-between px-2 mb-1.5">
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-800">
-              Mga Folder ({folders.length})
-            </span>
-          </div>
+          <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
+            Mga Folder ({folders.length})
+          </p>
           {folders.length === 0 ? (
             <p className="px-2 py-2 text-[11px] text-slate-400">
               Wala pang folder. Gumawa ng isa upang maayos ang iyong mga file.
@@ -671,9 +647,71 @@ export function StudentWorkspace({
             <div className="space-y-0.5">{renderFolderTree(null, 0)}</div>
           )}
         </div>
+
+        {/* System & Security */}
+        <div>
+          <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
+            Sistema at Seguridad
+          </p>
+          <nav className="space-y-1">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDoc(null);
+                setNavSection('storage');
+                setSidebarOpen(false);
+              }}
+              className={navItemClass(navSection === 'storage' && !activeDoc)}
+            >
+              <span className="flex items-center gap-2">
+                <HardDrive className="h-4 w-4" />
+                Pamamahala ng Storage
+              </span>
+            </button>
+
+            {!supportContext && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveDoc(null);
+                    setNavSection('privacy');
+                    setSidebarOpen(false);
+                  }}
+                  className={navItemClass(navSection === 'privacy' && !activeDoc)}
+                >
+                  <span className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4" />
+                    Pagkapribado
+                  </span>
+                  {pendingGrants > 0 && (
+                    <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-slate-900">
+                      {pendingGrants}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveDoc(null);
+                    setNavSection('profile');
+                    setSidebarOpen(false);
+                  }}
+                  className={navItemClass(navSection === 'profile' && !activeDoc)}
+                >
+                  <span className="flex items-center gap-2">
+                    <UserIcon className="h-4 w-4" />
+                    Profile ng Account
+                  </span>
+                </button>
+              </>
+            )}
+          </nav>
+        </div>
       </div>
 
-      {/* Storage Tracker Widget */}
+      {/* Storage Widget + Logout */}
       <div className="border-t border-blue-100 p-3.5 bg-blue-50/40 space-y-2.5">
         <div className="flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 font-bold text-blue-950">
@@ -696,7 +734,11 @@ export function StudentWorkspace({
           <span>Natitira: {storage.remainingMB.toFixed(2)} MB</span>
           <button
             type="button"
-            onClick={() => setStorageModalOpen(true)}
+            onClick={() => {
+              setActiveDoc(null);
+              setNavSection('storage');
+              setSidebarOpen(false);
+            }}
             className="font-bold text-blue-700 hover:underline"
           >
             Pamahalaan
@@ -707,7 +749,7 @@ export function StudentWorkspace({
           <button
             type="button"
             onClick={() => void onLogout()}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
           >
             <LogOut className="h-3.5 w-3.5" />
             Mag-log out
@@ -718,22 +760,19 @@ export function StudentWorkspace({
   );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#f4f8ff]">
-      {/* Desktop Sidebar */}
+    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f8ff]">
+      {/* Desktop Fixed Sidebar */}
       <aside className="no-print hidden lg:block w-72 shrink-0 h-full">{sidebarContent}</aside>
 
-      {/* Mobile Sidebar Overlay */}
+      {/* Mobile Drawer */}
       {sidebarOpen && (
         <div className="no-print fixed inset-0 z-40 lg:hidden flex">
-          <div
-            className="fixed inset-0 bg-slate-900/50"
-            onClick={() => setSidebarOpen(false)}
-          />
+          <div className="fixed inset-0 bg-slate-900/50" onClick={() => setSidebarOpen(false)} />
           <aside className="relative z-50 w-72 max-w-[85vw] h-full">{sidebarContent}</aside>
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Main 100% Area Workspace */}
       <main className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
         {loadingDoc ? (
           <div className="flex-1 flex items-center justify-center text-sm font-semibold text-blue-700">
@@ -780,10 +819,36 @@ export function StudentWorkspace({
             onPermanentDeleteDocument={handlePermDeleteDoc}
             onEmptyTrash={handleEmptyTrash}
           />
+        ) : navSection === 'storage' ? (
+          <StoragePageView
+            storage={storage}
+            supportStudentId={supportStudentId}
+            onOpenSidebar={() => setSidebarOpen(true)}
+            onOpenDocument={(id) => void openDocumentById(id)}
+            onOpenTrash={() => {
+              setNavSection('trash');
+              void refreshTrash();
+            }}
+            onStorageSynced={setStorage}
+          />
+        ) : navSection === 'privacy' && !supportContext ? (
+          <PrivacyPageView
+            onOpenSidebar={() => setSidebarOpen(true)}
+            onNotify={onNotify}
+            onPendingCountChange={setPendingGrants}
+          />
+        ) : navSection === 'profile' && !supportContext ? (
+          <ProfilePageView
+            user={currentUser}
+            onOpenSidebar={() => setSidebarOpen(true)}
+            onUpdated={(updated, msg) => {
+              onUserUpdated(updated);
+              onNotify('success', msg);
+            }}
+          />
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
-            {/* Workspace Top Bar */}
-            <header className="border-b border-blue-100 bg-white px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+            <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   type="button"
@@ -794,8 +859,7 @@ export function StudentWorkspace({
                   <Menu className="h-5 w-5" />
                 </button>
                 <div className="min-w-0">
-                  {/* Breadcrumbs */}
-                  <div className="flex items-center gap-1.5 text-sm sm:text-base font-extrabold text-slate-900 flex-wrap">
+                  <div className="flex items-center gap-1.5 text-base sm:text-lg font-extrabold text-slate-900 flex-wrap">
                     <button
                       type="button"
                       onClick={() => {
@@ -823,14 +887,14 @@ export function StudentWorkspace({
                     ))}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {visibleFolders.length} folder • {visibleDocuments.length} dokumento •{' '}
+                    {visibleFolders.length} folder • {visibleDocuments.length} dokumento •
                     Natitirang storage: <strong>{storage.remainingMB.toFixed(2)} MB</strong>
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-64">
+                <div className="relative flex-1 sm:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
@@ -848,7 +912,7 @@ export function StudentWorkspace({
                         navSection === 'folder' ? selectedFolderId : null
                       )
                     }
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
                   >
                     <FilePlus2 className="h-4 w-4" />
                     Bagong Dokumento
@@ -857,21 +921,19 @@ export function StudentWorkspace({
               </div>
             </header>
 
-            {/* Files & Folders Grid */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
               {loadingList ? (
                 <div className="rounded-2xl border border-blue-100 bg-white p-10 text-center text-sm text-slate-500">
                   Kinukuha ang iyong mga dokumento at folder...
                 </div>
               ) : (
                 <>
-                  {/* Folders Section */}
                   {visibleFolders.length > 0 && (
                     <section className="space-y-3">
                       <h2 className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
                         Mga Folder ({visibleFolders.length})
                       </h2>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
                         {visibleFolders.map((folder) => (
                           <div
                             key={folder.id}
@@ -938,13 +1000,12 @@ export function StudentWorkspace({
                     </section>
                   )}
 
-                  {/* Documents Section */}
                   <section className="space-y-3">
                     <h2 className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
                       Mga Dokumento ({visibleDocuments.length})
                     </h2>
                     {visibleDocuments.length === 0 ? (
-                      <div className="rounded-3xl border border-dashed border-blue-200 bg-white p-10 text-center">
+                      <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-12 text-center">
                         <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
                           <FileText className="h-6 w-6" />
                         </div>
@@ -970,7 +1031,7 @@ export function StudentWorkspace({
                         )}
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
                         {visibleDocuments.map((doc) => (
                           <div
                             key={doc.id}
@@ -1062,7 +1123,6 @@ export function StudentWorkspace({
         )}
       </main>
 
-      {/* Modals */}
       <FolderModal
         isOpen={folderModalOpen}
         editingFolder={editingFolder}
@@ -1074,39 +1134,6 @@ export function StudentWorkspace({
         }}
         onSubmit={handleSaveFolder}
       />
-
-      <StorageModal
-        isOpen={storageModalOpen}
-        storage={storage}
-        supportStudentId={supportStudentId}
-        onClose={() => setStorageModalOpen(false)}
-        onOpenDocument={(id) => void openDocumentById(id)}
-        onOpenTrash={() => {
-          setActiveDoc(null);
-          setNavSection('trash');
-          void refreshTrash();
-        }}
-      />
-
-      {!supportContext && (
-        <>
-          <PrivacyModal
-            isOpen={privacyModalOpen}
-            onClose={() => setPrivacyModalOpen(false)}
-            onNotify={onNotify}
-            onPendingCountChange={setPendingGrants}
-          />
-          <ProfileModal
-            isOpen={profileModalOpen}
-            user={currentUser}
-            onClose={() => setProfileModalOpen(false)}
-            onUpdated={(updated, msg) => {
-              onUserUpdated(updated);
-              onNotify('success', msg);
-            }}
-          />
-        </>
-      )}
     </div>
   );
 }
