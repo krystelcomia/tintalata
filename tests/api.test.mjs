@@ -478,4 +478,44 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   assert.equal(studentDLogin.status, 200);
   assert.equal(studentDLogin.body.user.role, 'student');
   assert.equal(studentDLogin.body.storage.quotaMB, 75);
+
+  // 13. Duplicate email prevention (case-insensitive) via both registration and Admin creation
+  const dupReg = await new CookieClient(baseUrl).request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Duplicate User',
+      email: 'ANA.SANTOS@PAARALAN.PH',
+      password: 'Password123',
+    }),
+  });
+  assert.equal(dupReg.status, 409);
+
+  const dupAdminCreate = await admin.request('/api/admin/students', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Duplicate User',
+      email: 'ana.santos@paaralan.ph',
+      password: 'Password123',
+    }),
+  });
+  assert.equal(dupAdminCreate.status, 409);
+
+  // 14. Admin can set/reset student password directly from Manage Account modal
+  const adminResetDirect = await admin.request(
+    `/api/admin/students/${studentDLogin.body.user.id}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ newPassword: 'AnaResetPassword99' }),
+    }
+  );
+  assert.equal(adminResetDirect.status, 200);
+
+  const studentDLoginNew = await new CookieClient(baseUrl).request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'ana.santos@paaralan.ph',
+      password: 'AnaResetPassword99',
+    }),
+  });
+  assert.equal(studentDLoginNew.status, 200);
 });

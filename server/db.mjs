@@ -18,7 +18,7 @@ export function createDatabase(dbPath = CONFIG.DB_PATH) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
       password_hash TEXT NOT NULL,
       full_name TEXT NOT NULL,
       student_number TEXT DEFAULT '',

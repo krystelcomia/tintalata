@@ -109,7 +109,9 @@ export function createStudentAccount(
     };
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
+  const existing = db
+    .prepare('SELECT id FROM users WHERE LOWER(email) = ?')
+    .get(cleanEmail);
   if (existing) {
     return {
       ok: false,
@@ -126,25 +128,36 @@ export function createStudentAccount(
   const now = new Date().toISOString();
   const passwordHash = hashPassword(rawPassword);
 
-  db.prepare(
-    `INSERT INTO users (
-      id, email, password_hash, full_name, student_number, course_section,
-      role, status, storage_quota_bytes, storage_used_bytes, managed_by_admin_id,
-      created_at, updated_at, last_login_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'student', 'active', ?, 0, ?, ?, ?, ?)`
-  ).run(
-    userId,
-    cleanEmail,
-    passwordHash,
-    cleanName,
-    cleanStudentNum,
-    cleanCourse,
-    Number(storageQuotaBytes),
-    primaryAdmin?.id || null,
-    now,
-    now,
-    markLoggedInNow ? now : null
-  );
+  try {
+    db.prepare(
+      `INSERT INTO users (
+        id, email, password_hash, full_name, student_number, course_section,
+        role, status, storage_quota_bytes, storage_used_bytes, managed_by_admin_id,
+        created_at, updated_at, last_login_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'student', 'active', ?, 0, ?, ?, ?, ?)`
+    ).run(
+      userId,
+      cleanEmail,
+      passwordHash,
+      cleanName,
+      cleanStudentNum,
+      cleanCourse,
+      Number(storageQuotaBytes),
+      primaryAdmin?.id || null,
+      now,
+      now,
+      markLoggedInNow ? now : null
+    );
+  } catch (err) {
+    if (String(err?.message || '').includes('UNIQUE')) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'May nakarehistro nang account gamit ang email na ito.',
+      };
+    }
+    throw err;
+  }
 
   createStarterWorkspace(db, userId, cleanName);
 

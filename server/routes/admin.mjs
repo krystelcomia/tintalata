@@ -269,7 +269,8 @@ export function createAdminRouter(db) {
       return res.status(404).json({ error: 'Hindi natagpuan ang account ng mag-aaral.' });
     }
 
-    const { status, storageQuotaMB, fullName, studentNumber, courseSection } = req.body || {};
+    const { status, storageQuotaMB, fullName, studentNumber, courseSection, newPassword } =
+      req.body || {};
     const nextStatus = status !== undefined ? String(status) : student.status;
     if (!['active', 'suspended', 'inactive'].includes(nextStatus)) {
       return res.status(400).json({ error: 'Hindi wastong status ng account.' });
@@ -297,16 +298,38 @@ export function createAdminRouter(db) {
     const nextCourse =
       courseSection !== undefined ? String(courseSection).trim().slice(0, 80) : student.course_section;
 
+    let nextPasswordHash = student.password_hash;
+    let passwordChanged = false;
+    if (newPassword !== undefined && String(newPassword).length > 0) {
+      const cleanNewPass = String(newPassword);
+      if (cleanNewPass.length < 8) {
+        return res.status(400).json({
+          error: 'Ang bagong password ay dapat may hindi bababa sa 8 karakter.',
+        });
+      }
+      nextPasswordHash = hashPassword(cleanNewPass);
+      passwordChanged = true;
+    }
+
     const now = new Date().toISOString();
     db.prepare(
       `UPDATE users
        SET status = ?, storage_quota_bytes = ?, full_name = ?,
-           student_number = ?, course_section = ?, updated_at = ?
+           student_number = ?, course_section = ?, password_hash = ?, updated_at = ?
        WHERE id = ?`
-    ).run(nextStatus, nextQuotaBytes, nextName, nextStudentNum, nextCourse, now, student.id);
+    ).run(
+      nextStatus,
+      nextQuotaBytes,
+      nextName,
+      nextStudentNum,
+      nextCourse,
+      nextPasswordHash,
+      now,
+      student.id
+    );
 
-    // Immediately terminate active sessions if account is suspended or deactivated
-    if (nextStatus !== 'active') {
+    // Terminate active sessions if account is suspended/deactivated or password was reset
+    if (nextStatus !== 'active' || passwordChanged) {
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(student.id);
     }
 
@@ -314,7 +337,7 @@ export function createAdminRouter(db) {
       actorId: req.user.id,
       targetUserId: student.id,
       action: 'ADMIN_UPDATED_STUDENT_ACCOUNT',
-      details: `Status: ${nextStatus}, Kapasidad: ${Math.round(nextQuotaBytes / (1024 * 1024))} MB`,
+      details: `Status: ${nextStatus}, Kapasidad: ${Math.round(nextQuotaBytes / (1024 * 1024))} MB${passwordChanged ? ', Pinalitan ang password' : ''}`,
     });
 
     return res.json({

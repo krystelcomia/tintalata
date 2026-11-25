@@ -71,6 +71,7 @@ export function AdminDashboard({
   const [editFullName, setEditFullName] = useState('');
   const [editStudentNumber, setEditStudentNumber] = useState('');
   const [editCourse, setEditCourse] = useState('');
+  const [editNewPassword, setEditNewPassword] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Request Access Modal
@@ -171,6 +172,7 @@ export function AdminDashboard({
     setEditFullName(student.fullName);
     setEditStudentNumber(student.studentNumber);
     setEditCourse(student.courseSection);
+    setEditNewPassword('');
   };
 
   const handleSaveStudent = async (e: React.FormEvent) => {
@@ -186,6 +188,7 @@ export function AdminDashboard({
           fullName: editFullName,
           studentNumber: editStudentNumber,
           courseSection: editCourse,
+          newPassword: editNewPassword || undefined,
         }),
       });
       onNotify('success', res.message);
@@ -1067,6 +1070,19 @@ export function AdminDashboard({
                     required
                     value={editQuotaMB}
                     onChange={(e) => setEditQuotaMB(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Magtalaga ng Bagong Password (Opsyonal)
+                  </label>
+                  <input
+                    type="text"
+                    minLength={8}
+                    value={editNewPassword}
+                    onChange={(e) => setEditNewPassword(e.target.value)}
+                    placeholder="Iwanang blangko kung hindi papalitan (min. 8 karakter)"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
                   />
                 </div>
