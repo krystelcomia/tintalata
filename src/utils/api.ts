@@ -35,11 +35,11 @@ export async function apiRequest<T>(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(
-      res.status,
-      data?.error ||
-        `Nagkaroon ng problema sa koneksyon sa server (Code ${res.status}). Pakisubukang muli.`
-    );
+    const fallback =
+      res.status === 404
+        ? 'Hindi maabot ang API server (Code 404). Tiyaking pinapatakbo ang app gamit ang "npm run dev", "npm run preview", o "npm start".'
+        : `Nagkaroon ng problema sa koneksyon sa server (Code ${res.status}). Pakisubukang muli.`;
+    throw new ApiError(res.status, data?.error || fallback);
   }
   return data as T;
 }

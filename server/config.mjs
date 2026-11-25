@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const DATA_DIR = path.resolve(import.meta.dirname, '..', 'data');
+const DATA_DIR = process.env.VERCEL
+  ? '/tmp/tintalata-data'
+  : path.resolve(import.meta.dirname, '..', 'data');
 
 function resolveSessionSecret() {
   if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32) {

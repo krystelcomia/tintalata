@@ -1,31 +1,39 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Plugin, type Connect } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import type { Server } from 'node:http';
+
+async function attachEmbeddedApi(middlewares: Connect.Server, httpServer: Server | null) {
+  if (process.env.TINTALATA_PROXY_API === '1') return;
+  const { createDatabase } = await import('./server/db.mjs');
+  const { createApp } = await import('./server/app.mjs');
+  const db = createDatabase();
+  const apiApp = createApp(db, { serveStatic: false });
+
+  middlewares.use((req, res, next) => {
+    if (req.url && req.url.startsWith('/api')) {
+      return apiApp(req as never, res as never, next);
+    }
+    return next();
+  });
+
+  httpServer?.once('close', () => {
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+  });
+}
 
 function tintalataEmbeddedApiPlugin(): Plugin {
   return {
     name: 'tintalata-embedded-api',
     async configureServer(server) {
-      if (process.env.TINTALATA_PROXY_API === '1') return;
-      const { createDatabase } = await import('./server/db.mjs');
-      const { createApp } = await import('./server/app.mjs');
-      const db = createDatabase();
-      const apiApp = createApp(db, { serveStatic: false });
-
-      server.middlewares.use((req, res, next) => {
-        if (req.url && req.url.startsWith('/api')) {
-          return apiApp(req as never, res as never, next);
-        }
-        return next();
-      });
-
-      server.httpServer?.once('close', () => {
-        try {
-          db.close();
-        } catch {
-          // ignore
-        }
-      });
+      await attachEmbeddedApi(server.middlewares, server.httpServer as Server | null);
+    },
+    async configurePreviewServer(server) {
+      await attachEmbeddedApi(server.middlewares, server.httpServer as Server | null);
     },
   };
 }
@@ -43,6 +51,9 @@ export default defineConfig({
             },
           }
         : undefined,
+  },
+  preview: {
+    port: 4173,
   },
   build: {
     outDir: 'dist',

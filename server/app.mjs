@@ -56,7 +56,7 @@ export function createApp(db, { serveStatic = true } = {}) {
   });
 
   if (serveStatic) {
-    const distDir = path.resolve(process.cwd(), 'dist');
+    const distDir = path.resolve(import.meta.dirname, '..', 'dist');
     if (fs.existsSync(distDir)) {
       app.use(express.static(distDir));
       app.get('*', (_req, res) => {
