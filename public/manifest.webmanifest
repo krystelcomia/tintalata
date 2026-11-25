@@ -1,0 +1,16 @@
+{
+  "name": "Tintalata — Patnugot ng Dokumento at Guhit",
+  "short_name": "Tintalata",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    {
+      "src": "/tintalata-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
