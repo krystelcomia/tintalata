@@ -5,6 +5,7 @@ import {
   generateRecoveryCode,
   hashPassword,
   hashRecoveryCode,
+  isValidRecoveryCodeFormat,
 } from './crypto.mjs';
 import { calculateDocumentBytes, recalculateUserStorage } from './storage.mjs';
 import { countWords } from './sanitize.mjs';
@@ -78,6 +79,7 @@ export async function createStudentAccount(
     password = '',
     studentNumber = '',
     courseSection = '',
+    recoveryCode: providedRecoveryCode = undefined,
     storageQuotaBytes = CONFIG.DEFAULT_STORAGE_QUOTA_BYTES,
     createdByAdminId = null,
     markLoggedInNow = false,
@@ -116,6 +118,24 @@ export async function createStudentAccount(
       status: 400,
       error: 'Masyadong mahaba ang Numero ng Mag-aaral o Kurso/Seksyon.',
     };
+  }
+
+  let validatedRecoveryCode = null;
+  if (
+    providedRecoveryCode !== undefined &&
+    providedRecoveryCode !== null &&
+    String(providedRecoveryCode).trim() !== ''
+  ) {
+    const cleanRecCode = String(providedRecoveryCode).trim();
+    if (!isValidRecoveryCodeFormat(cleanRecCode)) {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          'Ang Recovery Code ay dapat eksaktong anim (6) na numero lamang (0–9) at walang letra o simbolo.',
+      };
+    }
+    validatedRecoveryCode = cleanRecCode;
   }
 
   const existing = await db.get('SELECT id FROM users WHERE LOWER(email) = ?', cleanEmail);
@@ -168,7 +188,7 @@ export async function createStudentAccount(
 
   await createStarterWorkspace(db, userId, cleanName);
 
-  const recoveryCode = generateRecoveryCode();
+  const recoveryCode = validatedRecoveryCode || generateRecoveryCode();
   await db.run(
     `INSERT INTO student_recovery_codes (
       id, user_id, code_hmac, code_ciphertext, status, created_at, created_by_user_id

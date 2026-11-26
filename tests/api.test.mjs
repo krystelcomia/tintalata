@@ -1549,4 +1549,43 @@ test('Student 6-digit recovery code generation, leading-zero preservation, cross
   assert.equal(allAuditText.includes(leadingZeroCode), false);
   assert.equal(allAuditText.includes(newAliceCode), false);
   assert.equal(allAuditText.includes(bobRegen.body.recoveryCode), false);
+
+  // 10. Student can provide their own 6-digit recovery code (preserving leading zeros) during registration
+  const badCustomReg = await new CookieClient(baseUrl).request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Clara Reyes',
+      email: 'clara.reyes@paaralan.ph',
+      studentNumber: '2026-C003',
+      password: 'ClaraPassword1',
+      recoveryCode: '12a456',
+    }),
+  });
+  assert.equal(badCustomReg.status, 400);
+
+  const customReg = await new CookieClient(baseUrl).request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Clara Reyes',
+      email: 'clara.reyes@paaralan.ph',
+      studentNumber: '2026-C003',
+      password: 'ClaraPassword1',
+      recoveryCode: '007319',
+    }),
+  });
+  assert.equal(customReg.status, 201);
+  assert.equal(customReg.body.recoveryCode, '007319');
+
+  app.locals.rateLimitOverrides = {};
+  const verifyCustom = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '203.0.113.210' },
+    body: JSON.stringify({
+      email: 'clara.reyes@paaralan.ph',
+      studentNumber: '2026-C003',
+      recoveryCode: '007319',
+    }),
+  });
+  assert.equal(verifyCustom.status, 200);
+  assert.equal(verifyCustom.body.verified, true);
 });

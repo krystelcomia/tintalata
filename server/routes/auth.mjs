@@ -269,6 +269,7 @@ export function createAuthRouter(db) {
         password = '',
         studentNumber = '',
         courseSection = '',
+        recoveryCode = undefined,
       } = req.body || {};
 
       const result = await createStudentAccount(db, {
@@ -277,6 +278,7 @@ export function createAuthRouter(db) {
         password,
         studentNumber,
         courseSection,
+        recoveryCode,
         markLoggedInNow: true,
       });
 

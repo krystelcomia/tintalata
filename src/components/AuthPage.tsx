@@ -93,6 +93,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   const [courseSection, setCourseSection] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [regRecoveryCode, setRegRecoveryCode] = useState('');
 
   // Post-registration Recovery Code Confirmation state
   const [createdAccountRecovery, setCreatedAccountRecovery] = useState<{
@@ -204,6 +205,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
       setCreatedAccountRecovery(null);
       setAcknowledgedRecoverySaved(false);
       setCopiedRecoveryCode(false);
+      setRegRecoveryCode('');
     }
   }, [mode]);
 
@@ -268,6 +270,14 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
       return;
     }
 
+    const cleanRecCode = regRecoveryCode.trim();
+    if (!/^\d{6}$/.test(cleanRecCode)) {
+      const msg = 'Ang iyong Recovery Code ay dapat eksaktong anim (6) na numero lamang (0–9).';
+      setError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await apiRequest<{
@@ -283,6 +293,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
           studentNumber,
           courseSection,
           password: regPassword,
+          recoveryCode: cleanRecCode,
         }),
       });
       if (res.recoveryCode) {
@@ -292,6 +303,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
           storage: res.storage,
           message: res.message,
         });
+        setRegRecoveryCode('');
         setCopiedRecoveryCode(false);
         setAcknowledgedRecoverySaved(false);
         onNotify(
@@ -978,7 +990,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Gumawa ng Account ng Mag-aaral
                   </h1>
                   <p className="mt-1 text-sm text-slate-500">
-                    Pagkatapos magparehistro, awtomatiko kang dadalhin sa iyong dashboard.
+                    Gumawa ng iyong account at itakda ang iyong 6-digit recovery code.
                   </p>
                 </div>
               </div>
@@ -1121,6 +1133,50 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     </p>
                   </div>
                 )}
+
+                <div>
+                  <label
+                    htmlFor="reg-recovery-code"
+                    className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1"
+                  >
+                    6-Digit Recovery Code *
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+                    <input
+                      id="reg-recovery-code"
+                      type="text"
+                      required
+                      inputMode="numeric"
+                      pattern="\d{6}"
+                      maxLength={6}
+                      value={regRecoveryCode}
+                      onChange={(e) =>
+                        setRegRecoveryCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      }
+                      placeholder="Ilagay ang 6-digit na numero (hal. 042819)"
+                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3.5 py-2.5 font-mono text-sm tracking-widest focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  {/\d/.test(regRecoveryCode) && (
+                    <div
+                      role="note"
+                      className="mt-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-950 flex items-start gap-2 leading-relaxed"
+                    >
+                      <ShieldAlert className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-extrabold text-amber-900">
+                          Paalala: Huwag na huwag kalimutan ang iyong code!
+                        </p>
+                        <p className="mt-0.5">
+                          Ito lamang ang tanging code na magagamit mo kung sakaling makalimutan mo
+                          ang iyong password. Siguraduhing tandaan o itago ito sa ligtas na lugar.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <button
                   type="submit"
