@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { HardDrive, FileText, Trash2, AlertTriangle, Menu, RefreshCw } from 'lucide-react';
+import { HardDrive, FileText, Trash2, AlertTriangle, Menu, RefreshCw, ArrowLeft } from 'lucide-react';
 import { apiRequest, formatBytes, formatDateTimeTL } from '../utils/api';
 import type { StorageSummary } from '../types';
 
@@ -15,6 +15,7 @@ interface StoragePageViewProps {
   storage: StorageSummary;
   supportStudentId?: string;
   onOpenSidebar: () => void;
+  onBackToProfile?: () => void;
   onOpenDocument: (docId: string) => void;
   onOpenTrash: () => void;
   onStorageSynced: (storage: StorageSummary) => void;
@@ -24,6 +25,7 @@ export function StoragePageView({
   storage,
   supportStudentId,
   onOpenSidebar,
+  onBackToProfile,
   onOpenDocument,
   onOpenTrash,
   onStorageSynced,
@@ -87,15 +89,27 @@ export function StoragePageView({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void loadStorage()}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          I-refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {onBackToProfile && (
+            <button
+              type="button"
+              onClick={onBackToProfile}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Bumalik sa Profile at Mga Setting
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void loadStorage()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            I-refresh
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">

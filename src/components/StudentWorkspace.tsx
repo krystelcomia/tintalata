@@ -9,12 +9,10 @@ import {
   Star,
   Share2,
   Trash2,
-  HardDrive,
   Search,
   Download,
   Pencil,
   ShieldCheck,
-  LogOut,
   ChevronRight,
   PenTool,
   ArrowLeft,
@@ -715,13 +713,6 @@ export function StudentWorkspace({
     });
   };
 
-  const storageBarColor =
-    storage.percentUsed >= 90
-      ? 'bg-rose-500'
-      : storage.percentUsed >= 75
-        ? 'bg-amber-500'
-        : 'bg-blue-600';
-
   const navItemClass = (active: boolean) =>
     `w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition ${
       active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:bg-blue-50'
@@ -881,43 +872,6 @@ export function StudentWorkspace({
             <X className="h-5 w-5" />
           </button>
         </div>
-
-        {supportContext ? (
-          <div className="mt-3 rounded-xl bg-amber-400/20 border border-amber-200/40 p-2.5 text-xs">
-            <p className="font-bold text-amber-100">Awtorisadong Suporta</p>
-            <p className="text-[11px] text-white truncate">{supportContext.studentName}</p>
-            <button
-              type="button"
-              onClick={() => attemptLeaveEditor(supportContext.onExitSupport)}
-              className="mt-2 w-full rounded-lg bg-white text-blue-900 py-1.5 font-bold text-[11px] hover:bg-blue-50"
-            >
-              Bumalik sa Admin Dashboard
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() =>
-              attemptLeaveEditor(() => {
-                setActiveDoc(null);
-                setEditorHasUnsaved(false);
-                setNavSection('profile');
-                setSidebarOpen(false);
-              })
-            }
-            className="mt-3 w-full flex items-center gap-2.5 rounded-xl bg-white/10 hover:bg-white/15 px-3 py-2 border border-white/15 text-left transition"
-          >
-            <div className="h-8 w-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
-              <UserIcon className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold truncate">{currentUser.fullName}</p>
-              <p className="text-[10px] text-blue-100 truncate">
-                {currentUser.courseSection || currentUser.email}
-              </p>
-            </div>
-          </button>
-        )}
       </div>
 
       {!readOnly && (
@@ -1138,11 +1092,67 @@ export function StudentWorkspace({
         </div>
 
         {/* Settings & Security */}
-        <div>
-          <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
-            Account at Seguridad
-          </p>
-          <nav className="space-y-1">
+        {!supportContext && (
+          <div>
+            <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
+              Account at Seguridad
+            </p>
+            <nav className="space-y-1">
+              <button
+                type="button"
+                onClick={() =>
+                  attemptLeaveEditor(() => {
+                    setActiveDoc(null);
+                    setEditorHasUnsaved(false);
+                    setNavSection('privacy');
+                    setSidebarOpen(false);
+                  })
+                }
+                className={navItemClass(navSection === 'privacy' && !activeDoc)}
+              >
+                <span className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4" />
+                  Pagkapribado
+                </span>
+                {pendingGrants > 0 && (
+                  <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-slate-900">
+                    {pendingGrants}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  attemptLeaveEditor(() => {
+                    setActiveDoc(null);
+                    setEditorHasUnsaved(false);
+                    setNavSection('profile');
+                    setSidebarOpen(false);
+                  })
+                }
+                className={navItemClass(
+                  (navSection === 'profile' || navSection === 'storage') && !activeDoc
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <UserIcon className="h-4 w-4" />
+                  Profile at Mga Setting
+                </span>
+              </button>
+            </nav>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Profile & Course/Section Card */}
+      <div className="border-t border-blue-100 p-3.5 bg-blue-50/40">
+        {supportContext ? (
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs space-y-2">
+            <div>
+              <p className="font-bold text-amber-900">Awtorisadong Suporta</p>
+              <p className="text-[11px] text-amber-800 truncate">{supportContext.studentName}</p>
+            </div>
             <button
               type="button"
               onClick={() =>
@@ -1153,107 +1163,56 @@ export function StudentWorkspace({
                   setSidebarOpen(false);
                 })
               }
-              className={navItemClass(navSection === 'storage' && !activeDoc)}
+              className="w-full rounded-lg border border-blue-200 bg-white py-1.5 font-bold text-[11px] text-blue-700 hover:bg-blue-50"
             >
-              <span className="flex items-center gap-2">
-                <HardDrive className="h-4 w-4" />
-                Pamamahala ng Storage
-              </span>
+              Tingnan ang Storage ({storage.usedMB.toFixed(2)} / {storage.quotaMB.toFixed(0)} MB)
             </button>
-
-            {!supportContext && (
-              <>
-                <button
-                  type="button"
-                  onClick={() =>
-                    attemptLeaveEditor(() => {
-                      setActiveDoc(null);
-                      setEditorHasUnsaved(false);
-                      setNavSection('privacy');
-                      setSidebarOpen(false);
-                    })
-                  }
-                  className={navItemClass(navSection === 'privacy' && !activeDoc)}
-                >
-                  <span className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4" />
-                    Pagkapribado
-                  </span>
-                  {pendingGrants > 0 && (
-                    <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold text-slate-900">
-                      {pendingGrants}
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    attemptLeaveEditor(() => {
-                      setActiveDoc(null);
-                      setEditorHasUnsaved(false);
-                      setNavSection('profile');
-                      setSidebarOpen(false);
-                    })
-                  }
-                  className={navItemClass(navSection === 'profile' && !activeDoc)}
-                >
-                  <span className="flex items-center gap-2">
-                    <UserIcon className="h-4 w-4" />
-                    Profile at Mga Setting
-                  </span>
-                </button>
-              </>
-            )}
-          </nav>
-        </div>
-      </div>
-
-      {/* Bottom Storage Card */}
-      <div className="border-t border-blue-100 p-3.5 bg-blue-50/40 space-y-2.5">
-        <div className="flex items-center justify-between text-xs">
-          <span className="flex items-center gap-1.5 font-bold text-blue-950">
-            <HardDrive className="h-4 w-4 text-blue-600" />
-            Storage
-          </span>
-          <span className="font-semibold text-slate-600">
-            {storage.usedMB.toFixed(2)} / {storage.quotaMB.toFixed(0)} MB
-          </span>
-        </div>
-
-        <div className="h-2 w-full rounded-full bg-blue-100 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-300 ${storageBarColor}`}
-            style={{ width: `${Math.max(storage.usedBytes > 0 ? 3 : 0, storage.percentUsed)}%` }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] text-slate-500">
-          <span>Natitira: {storage.remainingMB.toFixed(2)} MB</span>
+            <button
+              type="button"
+              onClick={() => attemptLeaveEditor(supportContext.onExitSupport)}
+              className="w-full rounded-lg bg-blue-700 text-white py-1.5 font-bold text-[11px] hover:bg-blue-800"
+            >
+              Bumalik sa Admin Dashboard
+            </button>
+          </div>
+        ) : (
           <button
             type="button"
             onClick={() =>
               attemptLeaveEditor(() => {
                 setActiveDoc(null);
                 setEditorHasUnsaved(false);
-                setNavSection('storage');
+                setNavSection('profile');
                 setSidebarOpen(false);
               })
             }
-            className="font-bold text-blue-700 hover:underline"
+            className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 border text-left transition ${
+              (navSection === 'profile' || navSection === 'storage') && !activeDoc
+                ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                : 'bg-white border-blue-100 hover:bg-blue-50 text-slate-900'
+            }`}
           >
-            Pamahalaan
-          </button>
-        </div>
-
-        {!supportContext && (
-          <button
-            type="button"
-            onClick={() => attemptLeaveEditor(() => void onLogout())}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Mag-log out
+            <div
+              className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                (navSection === 'profile' || navSection === 'storage') && !activeDoc
+                  ? 'bg-white/20 text-white'
+                  : 'bg-blue-50 text-blue-700'
+              }`}
+            >
+              <UserIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold truncate">{currentUser.fullName}</p>
+              <p
+                className={`text-[11px] truncate ${
+                  (navSection === 'profile' || navSection === 'storage') && !activeDoc
+                    ? 'text-blue-100'
+                    : 'text-slate-500'
+                }`}
+              >
+                {currentUser.courseSection || currentUser.email}
+              </p>
+            </div>
           </button>
         )}
       </div>
@@ -1355,6 +1314,7 @@ export function StudentWorkspace({
             storage={storage}
             supportStudentId={supportStudentId}
             onOpenSidebar={() => setSidebarOpen(true)}
+            onBackToProfile={!supportContext ? () => setNavSection('profile') : undefined}
             onOpenDocument={(id) => void openDocumentById(id)}
             onOpenTrash={() => {
               setNavSection('trash');
@@ -1371,7 +1331,9 @@ export function StudentWorkspace({
         ) : navSection === 'profile' && !supportContext ? (
           <ProfilePageView
             user={currentUser}
+            storage={storage}
             onOpenSidebar={() => setSidebarOpen(true)}
+            onOpenStorage={() => setNavSection('storage')}
             onUpdated={(updated, msg) => {
               onUserUpdated(updated);
               onNotify('success', msg);

@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { User as UserIcon, Save, Menu, Bell, LogOut } from 'lucide-react';
-import type { NotificationSettings, User } from '../types';
+import { User as UserIcon, Save, Menu, Bell, LogOut, HardDrive } from 'lucide-react';
+import type { NotificationSettings, StorageSummary, User } from '../types';
 import { apiRequest, formatDateTimeTL } from '../utils/api';
 import { PasswordInput } from './PasswordInput';
 
 interface ProfilePageViewProps {
   user: User;
+  storage: StorageSummary;
   onOpenSidebar: () => void;
+  onOpenStorage: () => void;
   onUpdated: (user: User, message: string) => void;
   onLogout: () => Promise<void>;
 }
@@ -21,10 +23,18 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 
 export function ProfilePageView({
   user,
+  storage,
   onOpenSidebar,
+  onOpenStorage,
   onUpdated,
   onLogout,
 }: ProfilePageViewProps) {
+  const storageBarColor =
+    storage.percentUsed >= 90
+      ? 'bg-rose-500'
+      : storage.percentUsed >= 75
+        ? 'bg-amber-500'
+        : 'bg-blue-600';
   const [fullName, setFullName] = useState(user.fullName);
   const [studentNumber, setStudentNumber] = useState(user.studentNumber);
   const [courseSection, setCourseSection] = useState(user.courseSection);
@@ -261,6 +271,45 @@ export function ProfilePageView({
                   </select>
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-blue-100 bg-white p-6 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="h-4 w-4 text-blue-600" />
+                  <h3 className="text-sm font-extrabold text-slate-900">Pamamahala ng Storage</h3>
+                </div>
+                <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-bold text-blue-700">
+                  {storage.usedMB.toFixed(2)} / {storage.quotaMB.toFixed(0)} MB
+                </span>
+              </div>
+
+              <div className="h-2.5 w-full rounded-full bg-blue-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${storageBarColor}`}
+                  style={{
+                    width: `${Math.max(storage.usedBytes > 0 ? 3 : 0, storage.percentUsed)}%`,
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-600">
+                <span>
+                  Natitira: <strong className="text-slate-900">{storage.remainingMB.toFixed(2)} MB</strong>
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {storage.activeDocCount} aktibo • {storage.trashDocCount} sa Basurahan
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenStorage}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 py-2.5 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
+              >
+                <HardDrive className="h-4 w-4" />
+                Pamahalaan ang Storage
+              </button>
             </div>
 
             <div className="rounded-2xl border border-blue-100 bg-white p-6 shadow-2xs space-y-3">
