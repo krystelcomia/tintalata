@@ -139,6 +139,12 @@ export function StudentWorkspace({
   const [renameTarget, setRenameTarget] = useState<DocumentSummary | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [shareDocTarget, setShareDocTarget] = useState<DocumentSummary | null>(null);
+  const [pendingDeleteTarget, setPendingDeleteTarget] = useState<
+    | { type: 'document'; id: string; label: string; isDraft?: boolean }
+    | { type: 'folder'; folder: FolderType; label: string }
+    | null
+  >(null);
+  const [deletingItem, setDeletingItem] = useState(false);
   const [pendingGrants, setPendingGrants] = useState(initialPendingGrants);
 
   const refreshWorkspace = async () => {
@@ -374,27 +380,16 @@ export function StudentWorkspace({
 
   const handleDeleteDocument = async (docId: string) => {
     if (readOnly) return;
-    if (docId.startsWith('__draft__')) {
-      setActiveDoc(null);
-      setEditorHasUnsaved(false);
-      onNotify('info', 'Isinara ang bagong draft nang hindi sine-save.');
-      return;
-    }
-    try {
-      const res = await apiRequest<{ message: string; storage: StorageSummary }>(
-        `/api/documents/${docId}`,
-        { method: 'DELETE', supportStudentId }
-      );
-      if (activeDoc?.id === docId) {
-        setActiveDoc(null);
-        setEditorHasUnsaved(false);
-      }
-      setStorage(res.storage);
-      onNotify('success', res.message);
-      await refreshWorkspace();
-    } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Hindi nabura ang dokumento.');
-    }
+    const isDraft = docId.startsWith('__draft__');
+    const targetTitle =
+      (activeDoc?.id === docId ? activeDoc.title : documents.find((d) => d.id === docId)?.title) ||
+      'Walang Pamagat na Dokumento';
+    setPendingDeleteTarget({
+      type: 'document',
+      id: docId,
+      label: targetTitle,
+      isDraft,
+    });
   };
 
   const handleSaveFolder = async (payload: {
@@ -422,24 +417,68 @@ export function StudentWorkspace({
     await refreshWorkspace();
   };
 
-  const handleDeleteFolder = async (folder: FolderType) => {
+  const handleDeleteFolder = (folder: FolderType) => {
     if (readOnly) return;
+    setPendingDeleteTarget({
+      type: 'folder',
+      folder,
+      label: folder.name,
+    });
+  };
+
+  const executeConfirmedDelete = async () => {
+    if (!pendingDeleteTarget || readOnly) return;
+    setDeletingItem(true);
     try {
-      const res = await apiRequest<{ message: string }>(`/api/folders/${folder.id}`, {
-        method: 'DELETE',
-        supportStudentId,
-      });
-      if (selectedFolderId === folder.id) {
-        setSelectedFolderId(null);
-        setNavSection('folders');
+      if (pendingDeleteTarget.type === 'document') {
+        if (pendingDeleteTarget.isDraft) {
+          setActiveDoc(null);
+          setEditorHasUnsaved(false);
+          setPendingDeleteTarget(null);
+          onNotify('info', 'Isinara ang bagong draft nang hindi sine-save.');
+          return;
+        }
+        const res = await apiRequest<{ message: string; storage: StorageSummary }>(
+          `/api/documents/${pendingDeleteTarget.id}`,
+          { method: 'DELETE', supportStudentId }
+        );
+        if (activeDoc?.id === pendingDeleteTarget.id) {
+          setActiveDoc(null);
+          setEditorHasUnsaved(false);
+        }
+        setStorage(res.storage);
+        setPendingDeleteTarget(null);
+        onNotify('success', res.message);
+        await refreshWorkspace();
+      } else {
+        const folder = pendingDeleteTarget.folder;
+        const res = await apiRequest<{ message: string }>(`/api/folders/${folder.id}`, {
+          method: 'DELETE',
+          supportStudentId,
+        });
+        if (selectedFolderId === folder.id) {
+          setSelectedFolderId(null);
+          setNavSection('folders');
+        }
+        if (activeDoc?.folderId === folder.id) {
+          setActiveDoc(null);
+          setEditorHasUnsaved(false);
+        }
+        setPendingDeleteTarget(null);
+        onNotify('success', res.message);
+        await refreshWorkspace();
       }
-      if (activeDoc?.folderId === folder.id) {
-        setActiveDoc(null);
-      }
-      onNotify('success', res.message);
-      await refreshWorkspace();
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Hindi nabura ang folder.');
+      onNotify(
+        'error',
+        err instanceof Error
+          ? err.message
+          : pendingDeleteTarget.type === 'folder'
+            ? 'Hindi nabura ang folder.'
+            : 'Hindi nabura ang dokumento.'
+      );
+    } finally {
+      setDeletingItem(false);
     }
   };
 
@@ -1830,6 +1869,81 @@ export function StudentWorkspace({
           onNotify={onNotify}
           onChanged={() => void refreshWorkspace()}
         />
+      )}
+
+      {pendingDeleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-rose-200 space-y-4"
+          >
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <span className="inline-block rounded-md bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-rose-700 mb-1">
+                  Babala sa Pagbura
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  {pendingDeleteTarget.type === 'folder'
+                    ? 'Burahin ang Folder na Ito?'
+                    : pendingDeleteTarget.isDraft
+                      ? 'Burahin at Isara ang Bagong Draft?'
+                      : 'Burahin ang File na Ito?'}
+                </h3>
+                <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+                  {pendingDeleteTarget.type === 'folder' ? (
+                    <>
+                      Sigurado ka bang nais mong burahin ang folder na{' '}
+                      <strong className="text-slate-900">&ldquo;{pendingDeleteTarget.label}&rdquo;</strong>{' '}
+                      kasama ang lahat ng file sa loob nito? Ililipat ang mga ito sa{' '}
+                      <strong>Basurahan</strong>.
+                    </>
+                  ) : pendingDeleteTarget.isDraft ? (
+                    <>
+                      Sigurado ka bang nais mong burahin ang hindi pa nai-save na draft na{' '}
+                      <strong className="text-slate-900">&ldquo;{pendingDeleteTarget.label}&rdquo;</strong>?
+                      Mawawala ang lahat ng ginawa mo rito.
+                    </>
+                  ) : (
+                    <>
+                      Sigurado ka bang nais mong burahin ang dokumentong{' '}
+                      <strong className="text-slate-900">&ldquo;{pendingDeleteTarget.label}&rdquo;</strong>?
+                      Ililipat ito sa <strong>Basurahan (Recycle Bin)</strong> at mawawala sa mga
+                      aktibong file mo.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={deletingItem}
+                onClick={() => setPendingDeleteTarget(null)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Kanselahin
+              </button>
+              <button
+                type="button"
+                disabled={deletingItem}
+                onClick={() => void executeConfirmedDelete()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-60"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {deletingItem
+                  ? 'Binubura...'
+                  : pendingDeleteTarget.type === 'document' && pendingDeleteTarget.isDraft
+                    ? 'Oo, Burahin ang Draft'
+                    : 'Oo, Burahin'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {pendingLeaveAction && (

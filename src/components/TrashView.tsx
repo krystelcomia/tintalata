@@ -30,9 +30,9 @@ export function TrashView({
   onEmptyTrash,
 }: TrashViewProps) {
   const [confirmTarget, setConfirmTarget] = useState<
-    | { type: 'empty' }
-    | { type: 'folder'; id: string; label: string }
-    | { type: 'document'; id: string; label: string }
+    | { type: 'empty'; meta: string }
+    | { type: 'folder'; id: string; label: string; meta: string }
+    | { type: 'document'; id: string; label: string; meta: string }
     | null
   >(null);
   const [busy, setBusy] = useState(false);
@@ -82,7 +82,12 @@ export function TrashView({
         {!readOnly && totalItems > 0 && (
           <button
             type="button"
-            onClick={() => setConfirmTarget({ type: 'empty' })}
+            onClick={() =>
+              setConfirmTarget({
+                type: 'empty',
+                meta: `${documents.length} dokumento at ${folders.length} folder`,
+              })
+            }
             className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
           >
             <Trash2 className="h-4 w-4" />
@@ -151,6 +156,7 @@ export function TrashView({
                                 type: 'folder',
                                 id: folder.id,
                                 label: folder.name,
+                                meta: `${folder.nestedDocCount} dokumento • ${folder.nestedFolderCount} subfolder • ${formatBytes(folder.nestedBytes)}`,
                               })
                             }
                             className="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
@@ -212,6 +218,7 @@ export function TrashView({
                                 type: 'document',
                                 id: doc.id,
                                 label: doc.title,
+                                meta: `${formatBytes(doc.sizeBytes)} • ${doc.wordCount} salita`,
                               })
                             }
                             className="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
@@ -233,19 +240,38 @@ export function TrashView({
       {/* Permanent Delete Confirmation Modal */}
       {confirmTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-rose-200 space-y-4">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-rose-200 space-y-4"
+          >
             <div className="flex items-start gap-3">
               <div className="h-10 w-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
                 <AlertTriangle className="h-5 w-5" />
               </div>
               <div>
+                <span className="inline-block rounded-md bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-rose-700 mb-1">
+                  Babala — Hindi na Maibabalik
+                </span>
                 <h4 className="text-base font-bold text-slate-900">
                   Kumpirmahin ang Tuluyang Pagbura
                 </h4>
                 <p className="mt-1 text-xs text-slate-600 leading-relaxed">
-                  {confirmTarget.type === 'empty'
-                    ? 'Sigurado ka bang nais mong tuluyang burahin ang LAHAT ng laman ng Basurahan? Hindi na ito maibabalik pa.'
-                    : `Sigurado ka bang nais mong tuluyang burahin ang "${confirmTarget.label}"? Hindi na ito maibabalik pa, ngunit mababawi ang nagamit na storage.`}
+                  {confirmTarget.type === 'empty' ? (
+                    <>
+                      Sigurado ka bang nais mong tuluyang burahin ang <strong>LAHAT</strong> ng laman
+                      ng Basurahan ({confirmTarget.meta})? Tuluyan na itong mabubura nang
+                      permanente at hindi na maibabalik pa.
+                    </>
+                  ) : (
+                    <>
+                      Sigurado ka bang nais mong tuluyang burahin ang{' '}
+                      {confirmTarget.type === 'folder' ? 'folder' : 'file'} na{' '}
+                      <strong className="text-slate-900">&ldquo;{confirmTarget.label}&rdquo;</strong>{' '}
+                      ({confirmTarget.meta})? Tuluyan na itong mabubura nang permanente at hindi na
+                      maibabalik pa.
+                    </>
+                  )}
                 </p>
               </div>
             </div>
