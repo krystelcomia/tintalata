@@ -74,24 +74,24 @@ export function ProfilePageView({
 
   return (
     <div className="flex h-full flex-col bg-[#f4f8ff]">
-      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+      <header className="bg-gradient-to-b from-blue-800 via-blue-700 to-blue-600 border-b border-blue-700/50 px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3 text-white">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
             aria-label="Buksan ang Sidebar"
-            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+            className="lg:hidden rounded-xl border border-white/25 bg-white/15 p-2 text-white hover:bg-white/25"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+          <div className="h-10 w-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center text-white">
             <UserIcon className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900">
+            <h2 className="text-lg font-extrabold text-white">
               Profile, Mga Setting, at Abiso
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-blue-100">
               Pamahalaan ang iyong impormasyon sa account, mga abiso, at seguridad.
             </p>
           </div>
@@ -100,7 +100,7 @@ export function ProfilePageView({
         <button
           type="button"
           onClick={() => void onLogout()}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300/60 bg-rose-500 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-rose-600"
         >
           <LogOut className="h-4 w-4" />
           Mag-log out

@@ -853,8 +853,8 @@ export function StudentWorkspace({
   };
 
   const sidebarContent = (
-    <div className="flex h-full flex-col bg-white border-r border-blue-100">
-      <div className="bg-gradient-to-br from-blue-800 via-blue-700 to-blue-600 p-4 text-white">
+    <div className="flex h-full flex-col bg-white">
+      <div className="bg-gradient-to-b from-blue-800 via-blue-700 to-blue-600 px-4 py-4 min-h-[76px] flex flex-col justify-center text-white border-b border-blue-700/50">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <TintalataLogo size="sm" variant="light" />
@@ -875,7 +875,7 @@ export function StudentWorkspace({
       </div>
 
       {!readOnly && (
-        <div className="p-3 grid grid-cols-2 gap-2 border-b border-blue-50">
+        <div className="p-3 grid grid-cols-2 gap-2 border-b border-r border-blue-100">
           <button
             type="button"
             onClick={() =>
@@ -899,7 +899,7 @@ export function StudentWorkspace({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-5">
+      <div className="flex-1 overflow-y-auto p-3 space-y-5 border-r border-blue-100">
         <div>
           <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
             Nabigasyon
@@ -1146,7 +1146,7 @@ export function StudentWorkspace({
       </div>
 
       {/* Bottom Profile & Course/Section Card */}
-      <div className="border-t border-blue-100 p-3.5 bg-blue-50/40">
+      <div className="border-t border-r border-blue-100 p-3.5 bg-blue-50/40">
         {supportContext ? (
           <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs space-y-2">
             <div>
@@ -1343,39 +1343,39 @@ export function StudentWorkspace({
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
             {/* Top Workspace Header */}
-            <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+            <header className="bg-gradient-to-b from-blue-800 via-blue-700 to-blue-600 border-b border-blue-700/50 px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3 text-white">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(true)}
                   aria-label="Buksan ang Sidebar"
-                  className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+                  className="lg:hidden rounded-xl border border-white/25 bg-white/15 p-2 text-white hover:bg-white/25"
                 >
                   <Menu className="h-5 w-5" />
                 </button>
                 <div className="min-w-0">
                   {navSection === 'folder' ? (
-                    <div className="flex items-center gap-1.5 text-base sm:text-lg font-extrabold text-slate-900 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-base sm:text-lg font-extrabold text-white flex-wrap">
                       <button
                         type="button"
                         onClick={() => {
                           setNavSection('folders');
                           setSelectedFolderId(null);
                         }}
-                        className="hover:text-blue-700"
+                        className="hover:text-blue-100"
                       >
                         Mga Folder Ko
                       </button>
                       {breadcrumbs.map((b) => (
                         <span key={b.id} className="flex items-center gap-1.5">
-                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                          <ChevronRight className="h-4 w-4 text-blue-200" />
                           <button
                             type="button"
                             onClick={() => {
                               setNavSection('folder');
                               setSelectedFolderId(b.id);
                             }}
-                            className="text-blue-700 hover:underline"
+                            className="text-blue-100 hover:text-white hover:underline"
                           >
                             {b.name}
                           </button>
@@ -1383,30 +1383,30 @@ export function StudentWorkspace({
                       ))}
                     </div>
                   ) : (
-                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900 truncate">
+                    <h2 className="text-base sm:text-lg font-extrabold text-white truncate">
                       {sectionHeaderTitle()}
                     </h2>
                   )}
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-blue-100 mt-0.5">
                     {documents.length} dokumento • {folders.length} folder • Natitirang storage:{' '}
-                    <strong>{storage.remainingMB.toFixed(2)} MB</strong>
+                    <strong className="text-white">{storage.remainingMB.toFixed(2)} MB</strong>
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                 <div className="relative flex-1 sm:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Maghanap ng file..."
-                    className="w-full rounded-xl border border-blue-200 bg-blue-50/40 pl-9 pr-3 py-2 text-xs font-medium focus:border-blue-600 focus:bg-white focus:outline-none"
+                    className="w-full rounded-xl border border-white/25 bg-white/95 pl-9 pr-3 py-2 text-xs font-medium text-slate-900 placeholder-slate-400 focus:border-white focus:bg-white focus:outline-none"
                   />
                 </div>
 
-                <div className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-2.5 py-1.5 text-xs">
+                <div className="inline-flex items-center gap-1.5 rounded-xl border border-white/25 bg-white/95 px-2.5 py-1.5 text-xs">
                   <ArrowUpDown className="h-3.5 w-3.5 text-blue-600" />
                   <select
                     value={sortBy}
@@ -1431,7 +1431,7 @@ export function StudentWorkspace({
                         false
                       )
                     }
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-xs font-bold text-blue-800 shadow-sm hover:bg-blue-50 transition"
                   >
                     <FilePlus2 className="h-4 w-4" />
                     Bagong Dokumento
