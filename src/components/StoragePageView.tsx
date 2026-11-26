@@ -68,22 +68,22 @@ export function StoragePageView({
 
   return (
     <div className="flex h-full flex-col bg-[#f4f8ff]">
-      <header className="bg-gradient-to-b from-blue-800 via-blue-700 to-blue-600 border-b border-blue-700/50 px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3 text-white">
+      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
             aria-label="Buksan ang Sidebar"
-            className="lg:hidden rounded-xl border border-white/25 bg-white/15 p-2 text-white hover:bg-white/25"
+            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="h-10 w-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center text-white">
+          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
             <HardDrive className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-extrabold text-white">Pamamahala ng Storage</h2>
-            <p className="text-xs text-blue-100">
+            <h2 className="text-lg font-extrabold text-slate-900">Pamamahala ng Storage</h2>
+            <p className="text-xs text-slate-500">
               Awtomatikong pagsubaybay sa kabuuang kapasidad, nagamit, at natitirang espasyo sa MB.
             </p>
           </div>
@@ -94,7 +94,7 @@ export function StoragePageView({
             <button
               type="button"
               onClick={onBackToProfile}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/25 bg-white/15 px-3.5 py-2 text-xs font-bold text-white hover:bg-white/25 transition"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Bumalik sa Profile at Mga Setting
@@ -104,7 +104,7 @@ export function StoragePageView({
             type="button"
             onClick={() => void loadStorage()}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-xs font-bold text-blue-800 shadow-sm hover:bg-blue-50 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             I-refresh

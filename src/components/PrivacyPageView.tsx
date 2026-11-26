@@ -89,23 +89,23 @@ export function PrivacyPageView({
 
   return (
     <div className="flex h-full flex-col bg-[#f4f8ff]">
-      <header className="bg-gradient-to-b from-blue-800 via-blue-700 to-blue-600 border-b border-blue-700/50 px-5 sm:px-6 py-4 min-h-[76px] flex items-center gap-3 text-white">
+      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 min-h-[76px] flex items-center gap-3">
         <button
           type="button"
           onClick={onOpenSidebar}
           aria-label="Buksan ang Sidebar"
-          className="lg:hidden rounded-xl border border-white/25 bg-white/15 p-2 text-white hover:bg-white/25"
+          className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <div className="h-10 w-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center text-white">
+        <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
           <ShieldCheck className="h-5 w-5" />
         </div>
         <div>
-          <h2 className="text-lg font-extrabold text-white">
+          <h2 className="text-lg font-extrabold text-slate-900">
             Pagkapribado at Pahintulot sa Pag-access
           </h2>
-          <p className="text-xs text-blue-100">
+          <p className="text-xs text-slate-500">
             Ikaw ang may buong kontrol kung maaaring magbigay ng suporta ang Tagapangasiwa sa
             iyong mga file.
           </p>
