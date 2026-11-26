@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Home,
   FileText,
@@ -23,6 +23,8 @@ import {
   X,
   Brush,
   ArrowUpDown,
+  Save,
+  AlertTriangle,
 } from 'lucide-react';
 import type {
   DocumentFull,
@@ -112,6 +114,23 @@ export function StudentWorkspace({
   const [activeDoc, setActiveDoc] = useState<DocumentFull | null>(null);
   const [openInDrawMode, setOpenInDrawMode] = useState(false);
   const [loadingDoc, setLoadingDoc] = useState(false);
+  const [editorHasUnsaved, setEditorHasUnsaved] = useState(false);
+  const editorSaveFnRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
+  const [savingBeforeLeave, setSavingBeforeLeave] = useState(false);
+
+  const registerEditorSaveHandler = useCallback((fn: (() => Promise<boolean>) | null) => {
+    editorSaveFnRef.current = fn;
+  }, []);
+
+  const attemptLeaveEditor = (nextAction: () => void) => {
+    const canEditActive = Boolean(activeDoc && !readOnly && activeDoc.sharedRole !== 'read');
+    if (canEditActive && editorHasUnsaved) {
+      setPendingLeaveAction(() => nextAction);
+      return;
+    }
+    nextAction();
+  };
 
   // Modals & Drawers
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -200,35 +219,43 @@ export function StudentWorkspace({
     }
   };
 
-  const handleCreateDocument = async (
+  const handleCreateDocument = (
     targetFolderId: string | null = null,
     startInDrawMode = false
   ) => {
     if (readOnly) return;
-    try {
-      const res = await apiRequest<{
-        document: DocumentFull;
-        storage: StorageSummary;
-        message: string;
-      }>('/api/documents', {
-        method: 'POST',
-        supportStudentId,
-        body: JSON.stringify({
-          title: startInDrawMode ? 'Bagong Guhit at Doodle' : 'Bagong Dokumento',
-          folderId: targetFolderId,
-          contentHtml: startInDrawMode ? '<h2>Aking Guhit</h2><p></p>' : '<p></p>',
-          doodles: [],
-        }),
-      });
-      setStorage(res.storage);
+    attemptLeaveEditor(() => {
+      const nowIso = new Date().toISOString();
+      const draftFolderName = targetFolderId ? folderMap.get(targetFolderId)?.name || null : null;
+      const draftDoc: DocumentFull = {
+        id: `__draft__${Date.now()}`,
+        isNewDraft: true,
+        folderId: targetFolderId,
+        folderName: draftFolderName,
+        title: startInDrawMode ? 'Bagong Guhit at Doodle' : 'Bagong Dokumento',
+        previewText: '',
+        doodleCount: 0,
+        wordCount: 0,
+        sizeBytes: 0,
+        isFavorite: false,
+        lastOpenedAt: nowIso,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        contentHtml: startInDrawMode ? '<h2>Aking Guhit</h2><p></p>' : '<p></p>',
+        doodles: [],
+        pageDoodle: { strokes: [], dataUrl: '' },
+        pageSettings: {
+          orientation: 'portrait',
+          margins: 'normal',
+          pageColor: '#ffffff',
+          lineHeight: '1.6',
+        },
+      };
       setOpenInDrawMode(startInDrawMode);
-      setActiveDoc(res.document);
+      setActiveDoc(draftDoc);
+      setEditorHasUnsaved(true);
       setSidebarOpen(false);
-      onNotify('success', res.message);
-      await refreshWorkspace();
-    } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Hindi magawa ang dokumento.');
-    }
+    });
   };
 
   const handleSaveDocument = async (payload: {
@@ -241,42 +268,63 @@ export function StudentWorkspace({
     pageSettings: PageSettings;
     isFavorite: boolean;
   }) => {
-    const res = await apiRequest<{ document: DocumentFull; storage: StorageSummary }>(
-      `/api/documents/${payload.id}`,
-      {
-        method: 'PATCH',
-        supportStudentId,
-        body: JSON.stringify({
-          title: payload.title,
-          folderId: payload.folderId,
-          contentHtml: payload.contentHtml,
-          doodles: payload.doodles,
-          pageDoodle: payload.pageDoodle,
-          pageSettings: payload.pageSettings,
-          isFavorite: payload.isFavorite,
-        }),
-      }
-    );
+    const isDraft = payload.id.startsWith('__draft__');
+    const res = isDraft
+      ? await apiRequest<{ document: DocumentFull; storage: StorageSummary; message?: string }>(
+          '/api/documents',
+          {
+            method: 'POST',
+            supportStudentId,
+            body: JSON.stringify({
+              title: payload.title,
+              folderId: payload.folderId,
+              contentHtml: payload.contentHtml,
+              doodles: payload.doodles,
+              pageDoodle: payload.pageDoodle,
+              pageSettings: payload.pageSettings,
+              isFavorite: payload.isFavorite,
+            }),
+          }
+        )
+      : await apiRequest<{ document: DocumentFull; storage: StorageSummary }>(
+          `/api/documents/${payload.id}`,
+          {
+            method: 'PATCH',
+            supportStudentId,
+            body: JSON.stringify({
+              title: payload.title,
+              folderId: payload.folderId,
+              contentHtml: payload.contentHtml,
+              doodles: payload.doodles,
+              pageDoodle: payload.pageDoodle,
+              pageSettings: payload.pageSettings,
+              isFavorite: payload.isFavorite,
+            }),
+          }
+        );
     setActiveDoc(res.document);
+    setEditorHasUnsaved(false);
     setStorage(res.storage);
+    const summaryItem: DocumentSummary = {
+      id: res.document.id,
+      title: res.document.title,
+      folderId: res.document.folderId,
+      folderName: res.document.folderName,
+      previewText: res.document.previewText,
+      doodleCount: res.document.doodleCount,
+      wordCount: res.document.wordCount,
+      sizeBytes: res.document.sizeBytes,
+      isFavorite: res.document.isFavorite,
+      lastOpenedAt: res.document.lastOpenedAt,
+      createdAt: res.document.createdAt,
+      updatedAt: res.document.updatedAt,
+    };
     setDocuments((prev) =>
-      prev.map((d) =>
-        d.id === res.document.id
-          ? {
-              ...d,
-              title: res.document.title,
-              folderId: res.document.folderId,
-              folderName: res.document.folderName,
-              previewText: res.document.previewText,
-              doodleCount: res.document.doodleCount,
-              wordCount: res.document.wordCount,
-              sizeBytes: res.document.sizeBytes,
-              isFavorite: res.document.isFavorite,
-              updatedAt: res.document.updatedAt,
-            }
-          : d
-      )
+      isDraft
+        ? [summaryItem, ...prev.filter((d) => d.id !== res.document.id)]
+        : prev.map((d) => (d.id === res.document.id ? { ...d, ...summaryItem } : d))
     );
+    void refreshWorkspace();
   };
 
   const handleToggleFavorite = async (doc: DocumentSummary) => {
@@ -326,6 +374,12 @@ export function StudentWorkspace({
 
   const handleDeleteDocument = async (docId: string) => {
     if (readOnly) return;
+    if (docId.startsWith('__draft__')) {
+      setActiveDoc(null);
+      setEditorHasUnsaved(false);
+      onNotify('info', 'Isinara ang bagong draft nang hindi sine-save.');
+      return;
+    }
     try {
       const res = await apiRequest<{ message: string; storage: StorageSummary }>(
         `/api/documents/${docId}`,
@@ -333,6 +387,7 @@ export function StudentWorkspace({
       );
       if (activeDoc?.id === docId) {
         setActiveDoc(null);
+        setEditorHasUnsaved(false);
       }
       setStorage(res.storage);
       onNotify('success', res.message);
@@ -560,12 +615,15 @@ export function StudentWorkspace({
           >
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('folder');
-                setSelectedFolderId(folder.id);
-                setSidebarOpen(false);
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('folder');
+                  setSelectedFolderId(folder.id);
+                  setSidebarOpen(false);
+                })
+              }
               className="flex items-center gap-2 min-w-0 flex-1 text-left font-semibold"
             >
               <FolderIconBadge icon={folder.icon} color={folder.color} size="sm" />
@@ -791,7 +849,7 @@ export function StudentWorkspace({
             <p className="text-[11px] text-white truncate">{supportContext.studentName}</p>
             <button
               type="button"
-              onClick={supportContext.onExitSupport}
+              onClick={() => attemptLeaveEditor(supportContext.onExitSupport)}
               className="mt-2 w-full rounded-lg bg-white text-blue-900 py-1.5 font-bold text-[11px] hover:bg-blue-50"
             >
               Bumalik sa Admin Dashboard
@@ -800,11 +858,14 @@ export function StudentWorkspace({
         ) : (
           <button
             type="button"
-            onClick={() => {
-              setActiveDoc(null);
-              setNavSection('profile');
-              setSidebarOpen(false);
-            }}
+            onClick={() =>
+              attemptLeaveEditor(() => {
+                setActiveDoc(null);
+                setEditorHasUnsaved(false);
+                setNavSection('profile');
+                setSidebarOpen(false);
+              })
+            }
             className="mt-3 w-full flex items-center gap-2.5 rounded-xl bg-white/10 hover:bg-white/15 px-3 py-2 border border-white/15 text-left transition"
           >
             <div className="h-8 w-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
@@ -853,12 +914,15 @@ export function StudentWorkspace({
           <nav className="space-y-1">
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('home');
-                setSelectedFolderId(null);
-                setSidebarOpen(false);
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('home');
+                  setSelectedFolderId(null);
+                  setSidebarOpen(false);
+                })
+              }
               className={navItemClass(navSection === 'home' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
@@ -869,12 +933,15 @@ export function StudentWorkspace({
 
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('documents');
-                setSelectedFolderId(null);
-                setSidebarOpen(false);
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('documents');
+                  setSelectedFolderId(null);
+                  setSidebarOpen(false);
+                })
+              }
               className={navItemClass(navSection === 'documents' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
@@ -886,12 +953,15 @@ export function StudentWorkspace({
 
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('folders');
-                setSelectedFolderId(null);
-                setSidebarOpen(false);
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('folders');
+                  setSelectedFolderId(null);
+                  setSidebarOpen(false);
+                })
+              }
               className={navItemClass(navSection === 'folders' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
@@ -903,12 +973,15 @@ export function StudentWorkspace({
 
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('recent');
-                setSelectedFolderId(null);
-                setSidebarOpen(false);
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('recent');
+                  setSelectedFolderId(null);
+                  setSidebarOpen(false);
+                })
+              }
               className={navItemClass(navSection === 'recent' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
@@ -919,12 +992,15 @@ export function StudentWorkspace({
 
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('favorites');
-                setSelectedFolderId(null);
-                setSidebarOpen(false);
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('favorites');
+                  setSelectedFolderId(null);
+                  setSidebarOpen(false);
+                })
+              }
               className={navItemClass(navSection === 'favorites' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
@@ -939,12 +1015,15 @@ export function StudentWorkspace({
             {!supportContext && (
               <button
                 type="button"
-                onClick={() => {
-                  setActiveDoc(null);
-                  setNavSection('shared');
-                  setSelectedFolderId(null);
-                  setSidebarOpen(false);
-                }}
+                onClick={() =>
+                  attemptLeaveEditor(() => {
+                    setActiveDoc(null);
+                    setEditorHasUnsaved(false);
+                    setNavSection('shared');
+                    setSelectedFolderId(null);
+                    setSidebarOpen(false);
+                  })
+                }
                 className={navItemClass(navSection === 'shared' && !activeDoc)}
               >
                 <span className="flex items-center gap-2">
@@ -959,13 +1038,16 @@ export function StudentWorkspace({
 
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('trash');
-                setSelectedFolderId(null);
-                setSidebarOpen(false);
-                void refreshTrash();
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('trash');
+                  setSelectedFolderId(null);
+                  setSidebarOpen(false);
+                  void refreshTrash();
+                })
+              }
               className={navItemClass(navSection === 'trash' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
@@ -1024,11 +1106,14 @@ export function StudentWorkspace({
           <nav className="space-y-1">
             <button
               type="button"
-              onClick={() => {
-                setActiveDoc(null);
-                setNavSection('storage');
-                setSidebarOpen(false);
-              }}
+              onClick={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                  setNavSection('storage');
+                  setSidebarOpen(false);
+                })
+              }
               className={navItemClass(navSection === 'storage' && !activeDoc)}
             >
               <span className="flex items-center gap-2">
@@ -1041,11 +1126,14 @@ export function StudentWorkspace({
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveDoc(null);
-                    setNavSection('privacy');
-                    setSidebarOpen(false);
-                  }}
+                  onClick={() =>
+                    attemptLeaveEditor(() => {
+                      setActiveDoc(null);
+                      setEditorHasUnsaved(false);
+                      setNavSection('privacy');
+                      setSidebarOpen(false);
+                    })
+                  }
                   className={navItemClass(navSection === 'privacy' && !activeDoc)}
                 >
                   <span className="flex items-center gap-2">
@@ -1061,11 +1149,14 @@ export function StudentWorkspace({
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveDoc(null);
-                    setNavSection('profile');
-                    setSidebarOpen(false);
-                  }}
+                  onClick={() =>
+                    attemptLeaveEditor(() => {
+                      setActiveDoc(null);
+                      setEditorHasUnsaved(false);
+                      setNavSection('profile');
+                      setSidebarOpen(false);
+                    })
+                  }
                   className={navItemClass(navSection === 'profile' && !activeDoc)}
                 >
                   <span className="flex items-center gap-2">
@@ -1102,11 +1193,14 @@ export function StudentWorkspace({
           <span>Natitira: {storage.remainingMB.toFixed(2)} MB</span>
           <button
             type="button"
-            onClick={() => {
-              setActiveDoc(null);
-              setNavSection('storage');
-              setSidebarOpen(false);
-            }}
+            onClick={() =>
+              attemptLeaveEditor(() => {
+                setActiveDoc(null);
+                setEditorHasUnsaved(false);
+                setNavSection('storage');
+                setSidebarOpen(false);
+              })
+            }
             className="font-bold text-blue-700 hover:underline"
           >
             Pamahalaan
@@ -1116,7 +1210,7 @@ export function StudentWorkspace({
         {!supportContext && (
           <button
             type="button"
-            onClick={() => void onLogout()}
+            onClick={() => attemptLeaveEditor(() => void onLogout())}
             className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -1167,14 +1261,23 @@ export function StudentWorkspace({
             <div className="no-print bg-blue-50/90 border-b border-blue-100 px-4 py-1.5 flex items-center justify-between text-xs">
               <button
                 type="button"
-                onClick={() => setActiveDoc(null)}
+                onClick={() =>
+                  attemptLeaveEditor(() => {
+                    setActiveDoc(null);
+                    setEditorHasUnsaved(false);
+                  })
+                }
                 className="inline-flex items-center gap-1.5 font-bold text-blue-700 hover:text-blue-900"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Bumalik sa Workspace
               </button>
               <span className="text-[11px] text-slate-500">
-                Huling binago: {formatDateTimeTL(activeDoc.updatedAt)}
+                {activeDoc.isNewDraft
+                  ? 'Bagong draft • Hindi pa nai-save'
+                  : editorHasUnsaved
+                    ? 'May mga hindi pa nai-save na pagbabago'
+                    : `Huling binago: ${formatDateTimeTL(activeDoc.updatedAt)}`}
               </span>
             </div>
             <div className="flex-1 min-h-0">
@@ -1190,6 +1293,8 @@ export function StudentWorkspace({
                 onDeleteDocument={handleDeleteDocument}
                 onNotify={onNotify}
                 onSharesChanged={() => void refreshWorkspace()}
+                onDirtyChange={setEditorHasUnsaved}
+                registerSaveHandler={registerEditorSaveHandler}
               />
             </div>
           </div>
@@ -1725,6 +1830,76 @@ export function StudentWorkspace({
           onNotify={onNotify}
           onChanged={() => void refreshWorkspace()}
         />
+      )}
+
+      {pendingLeaveAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-blue-100 space-y-4"
+          >
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Mayroon pang gawa na hindi nai-save
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                  Paalala: Hindi awtomatikong sine-save ang iyong dokumento o guhit. Kung babalik ka
+                  sa workspace nang hindi nagse-save, hindi masa-save ang iyong mga ginawa.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={savingBeforeLeave}
+                onClick={() => setPendingLeaveAction(null)}
+                className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Magpatuloy sa Pag-edit
+              </button>
+              <button
+                type="button"
+                disabled={savingBeforeLeave}
+                onClick={() => {
+                  const proceed = pendingLeaveAction;
+                  setPendingLeaveAction(null);
+                  setEditorHasUnsaved(false);
+                  proceed();
+                }}
+                className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+              >
+                Umalis Nang Hindi Sine-save
+              </button>
+              <button
+                type="button"
+                disabled={savingBeforeLeave}
+                onClick={async () => {
+                  const proceed = pendingLeaveAction;
+                  setSavingBeforeLeave(true);
+                  const savedOk = editorSaveFnRef.current
+                    ? await editorSaveFnRef.current()
+                    : true;
+                  setSavingBeforeLeave(false);
+                  if (savedOk) {
+                    setPendingLeaveAction(null);
+                    setEditorHasUnsaved(false);
+                    proceed();
+                  }
+                }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {savingBeforeLeave ? 'Sine-save...' : 'I-save at Bumalik'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

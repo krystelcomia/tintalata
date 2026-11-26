@@ -83,6 +83,8 @@ interface WordEditorProps {
   onDeleteDocument: (docId: string) => Promise<void>;
   onNotify: (type: 'success' | 'error' | 'info', text: string) => void;
   onSharesChanged?: () => void;
+  onDirtyChange?: (hasUnsaved: boolean) => void;
+  registerSaveHandler?: (handler: (() => Promise<boolean>) | null) => void;
 }
 
 const FONT_FAMILIES = [
@@ -126,12 +128,14 @@ export function WordEditor({
   onDeleteDocument,
   onNotify,
   onSharesChanged,
+  onDirtyChange,
+  registerSaveHandler,
 }: WordEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const autoSaveTimerRef = useRef<number | null>(null);
+  const latestSaveRef = useRef<() => Promise<boolean>>(async () => true);
 
   const [title, setTitle] = useState(doc.title);
   const [folderId, setFolderId] = useState<string | null>(doc.folderId);
@@ -223,11 +227,23 @@ export function WordEditor({
       editorRef.current.innerHTML = doc.contentHtml || '<p></p>';
       updateLiveCounts();
     }
-    if (autoSaveTimerRef.current) {
-      window.clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
   }, [doc.id]);
+
+  const hasUnsavedChanges = !readOnly && (dirty || Boolean(doc.isNewDraft));
+
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onDirtyChange]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     renderOverlayCanvas(overlayStrokes, null);
@@ -276,30 +292,9 @@ export function WordEditor({
     return { strokes, dataUrl };
   };
 
-  const scheduleAutoSave = (
-    nextTitle = title,
-    nextFolderId = folderId,
-    nextDoodles = doodles,
-    nextOverlay = overlayStrokes,
-    nextSettings = pageSettings,
-    nextFav = isFavorite
-  ) => {
+  const markUnsaved = () => {
     if (readOnly) return;
     setDirty(true);
-    if (autoSaveTimerRef.current) {
-      window.clearTimeout(autoSaveTimerRef.current);
-    }
-    autoSaveTimerRef.current = window.setTimeout(() => {
-      void performSave(
-        nextTitle,
-        nextFolderId,
-        nextDoodles,
-        nextOverlay,
-        nextSettings,
-        nextFav,
-        true
-      );
-    }, 1300);
   };
 
   const performSave = async (
@@ -310,12 +305,8 @@ export function WordEditor({
     nextSettings = pageSettings,
     nextFav = isFavorite,
     silent = false
-  ) => {
-    if (readOnly || !editorRef.current) return;
-    if (autoSaveTimerRef.current) {
-      window.clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
+  ): Promise<boolean> => {
+    if (readOnly || !editorRef.current) return true;
     setSaving(true);
     try {
       const pageDoodle = buildCurrentPageDoodle(nextOverlay);
@@ -333,12 +324,21 @@ export function WordEditor({
       if (!silent) {
         onNotify('success', 'Nai-save na ang dokumento.');
       }
+      return true;
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : 'Hindi nai-save ang dokumento.');
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  latestSaveRef.current = () => performSave();
+
+  useEffect(() => {
+    registerSaveHandler?.(() => latestSaveRef.current());
+    return () => registerSaveHandler?.(null);
+  }, [registerSaveHandler]);
 
   const execCmd = (command: string, value?: string) => {
     if (readOnly) return;
@@ -346,7 +346,7 @@ export function WordEditor({
     window.document.execCommand(command, false, value);
     saveSelection();
     updateLiveCounts();
-    scheduleAutoSave();
+    markUnsaved();
   };
 
   const insertHtmlAtCursor = (html: string) => {
@@ -360,7 +360,7 @@ export function WordEditor({
     }
     saveSelection();
     updateLiveCounts();
-    scheduleAutoSave();
+    markUnsaved();
   };
 
   const handleInsertTable = (rows: number, cols: number) => {
@@ -448,7 +448,7 @@ export function WordEditor({
     setDoodleStudioOpen(false);
     setEditingDoodle(null);
     setSelectedDoodleId(doodle.id);
-    void performSave(title, folderId, nextDoodles, overlayStrokes, pageSettings, isFavorite, false);
+    markUnsaved();
   };
 
   // Direct On-Document Drawing Pointer Handlers
@@ -511,7 +511,7 @@ export function WordEditor({
     const next = [...overlayStrokes, finished];
     setOverlayStrokes(next);
     setOverlayRedo([]);
-    scheduleAutoSave(title, folderId, doodles, next, pageSettings, isFavorite);
+    markUnsaved();
   };
 
   const handleOverlayUndo = () => {
@@ -520,7 +520,7 @@ export function WordEditor({
     const next = overlayStrokes.slice(0, -1);
     setOverlayStrokes(next);
     setOverlayRedo((r) => [...r, last]);
-    scheduleAutoSave(title, folderId, doodles, next, pageSettings, isFavorite);
+    markUnsaved();
   };
 
   const handleOverlayRedo = () => {
@@ -529,14 +529,14 @@ export function WordEditor({
     const next = [...overlayStrokes, nextStroke];
     setOverlayRedo((r) => r.slice(0, -1));
     setOverlayStrokes(next);
-    scheduleAutoSave(title, folderId, doodles, next, pageSettings, isFavorite);
+    markUnsaved();
   };
 
   const handleOverlayClear = () => {
     if (overlayStrokes.length === 0) return;
     setOverlayStrokes([]);
     setOverlayRedo([]);
-    scheduleAutoSave(title, folderId, doodles, [], pageSettings, isFavorite);
+    markUnsaved();
   };
 
   const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -557,7 +557,7 @@ export function WordEditor({
     ) as HTMLImageElement | null;
     if (imgEl) {
       imgEl.style.width = widthPercent;
-      scheduleAutoSave();
+      markUnsaved();
     }
   };
 
@@ -568,7 +568,7 @@ export function WordEditor({
     const nextDoodles = doodles.filter((d) => d.id !== selectedDoodleId);
     setDoodles(nextDoodles);
     setSelectedDoodleId(null);
-    scheduleAutoSave(title, folderId, nextDoodles, overlayStrokes, pageSettings, isFavorite);
+    markUnsaved();
   };
 
   const handleReplaceAll = () => {
@@ -591,7 +591,7 @@ export function WordEditor({
     }
     if (count > 0) {
       updateLiveCounts();
-      scheduleAutoSave();
+      markUnsaved();
       onNotify('success', `Napalitan ang ${count} paglitaw ng "${findQuery}".`);
     } else {
       onNotify('info', `Walang nahanap na "${findQuery}".`);
@@ -600,9 +600,16 @@ export function WordEditor({
 
   const handleDownload = async (format: 'docx' | 'pdf' | 'doc' | 'html' | 'txt') => {
     setDownloadMenuOpen(false);
+    if (doc.isNewDraft) {
+      onNotify('info', 'Pindutin muna ang "I-save" upang maitala ang bagong dokumento bago mag-download.');
+      return;
+    }
     try {
       if (dirty && !readOnly) {
-        await performSave(title, folderId, doodles, overlayStrokes, pageSettings, isFavorite, true);
+        onNotify(
+          'info',
+          'Paalala: Hindi awtomatikong nai-save ang mga pagbabago; ang huling nai-save na bersyon ang ida-download.'
+        );
       }
       await triggerDownload(
         `/api/documents/${doc.id}/download?format=${format}`,
@@ -660,7 +667,7 @@ export function WordEditor({
               onChange={(e) => {
                 const next = e.target.value;
                 setTitle(next);
-                scheduleAutoSave(next, folderId, doodles, overlayStrokes, pageSettings, isFavorite);
+                markUnsaved();
               }}
               placeholder="Pamagat ng Dokumento"
               className="w-full rounded-lg border border-transparent px-2 py-1 text-base font-bold text-slate-900 hover:border-blue-200 focus:border-blue-500 focus:bg-blue-50/30 focus:outline-none truncate disabled:bg-transparent"
@@ -671,9 +678,8 @@ export function WordEditor({
             <button
               type="button"
               onClick={() => {
-                const nextFav = !isFavorite;
-                setIsFavorite(nextFav);
-                void performSave(title, folderId, doodles, overlayStrokes, pageSettings, nextFav, false);
+                setIsFavorite((fav) => !fav);
+                markUnsaved();
               }}
               title={isFavorite ? 'Alisin sa Mga Paborito' : 'Idagdag sa Mga Paborito'}
               className={`rounded-xl p-2 border transition ${
@@ -693,15 +699,7 @@ export function WordEditor({
               onChange={(e) => {
                 const nextFolder = e.target.value || null;
                 setFolderId(nextFolder);
-                void performSave(
-                  title,
-                  nextFolder,
-                  doodles,
-                  overlayStrokes,
-                  pageSettings,
-                  isFavorite,
-                  false
-                );
+                markUnsaved();
               }}
               aria-label="Folder ng Dokumento"
               className="hidden sm:block rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-1.5 text-xs font-semibold text-blue-800 focus:border-blue-600 focus:outline-none disabled:opacity-60"
@@ -754,7 +752,13 @@ export function WordEditor({
           {isOwner && !readOnly && !supportStudentId && (
             <button
               type="button"
-              onClick={() => setShareModalOpen(true)}
+              onClick={() => {
+                if (doc.isNewDraft) {
+                  onNotify('info', 'Pindutin muna ang "I-save" bago ibahagi ang bagong dokumento.');
+                  return;
+                }
+                setShareModalOpen(true);
+              }}
               title="Ibahagi sa kaklase"
               className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
             >
@@ -769,14 +773,14 @@ export function WordEditor({
               onClick={() => void performSave()}
               disabled={saving}
               className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
-                dirty
+                hasUnsavedChanges
                   ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700'
                   : 'border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'
               }`}
             >
               {saving ? (
                 'Sine-save...'
-              ) : dirty ? (
+              ) : hasUnsavedChanges ? (
                 <>
                   <Save className="h-3.5 w-3.5" />
                   I-save
@@ -991,7 +995,7 @@ export function WordEditor({
                   onChange={(e) => {
                     const next = { ...pageSettings, lineHeight: e.target.value };
                     setPageSettings(next);
-                    scheduleAutoSave(title, folderId, doodles, overlayStrokes, next, isFavorite);
+                    markUnsaved();
                   }}
                   title="Espasyo ng Linya (Line Spacing)"
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700"
@@ -1407,7 +1411,7 @@ export function WordEditor({
                         orientation: e.target.value as 'portrait' | 'landscape',
                       };
                       setPageSettings(next);
-                      scheduleAutoSave(title, folderId, doodles, overlayStrokes, next, isFavorite);
+                      markUnsaved();
                     }}
                     className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-700"
                   >
@@ -1426,7 +1430,7 @@ export function WordEditor({
                         margins: e.target.value as 'normal' | 'narrow' | 'wide',
                       };
                       setPageSettings(next);
-                      scheduleAutoSave(title, folderId, doodles, overlayStrokes, next, isFavorite);
+                      markUnsaved();
                     }}
                     className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-700"
                   >
@@ -1449,14 +1453,7 @@ export function WordEditor({
                       onClick={() => {
                         const next = { ...pageSettings, pageColor: c.hex };
                         setPageSettings(next);
-                        scheduleAutoSave(
-                          title,
-                          folderId,
-                          doodles,
-                          overlayStrokes,
-                          next,
-                          isFavorite
-                        );
+                        markUnsaved();
                       }}
                       className={`rounded-lg border px-2.5 py-1 font-semibold ${
                         pageSettings.pageColor === c.hex
@@ -1598,7 +1595,7 @@ export function WordEditor({
               onInput={() => {
                 saveSelection();
                 updateLiveCounts();
-                scheduleAutoSave();
+                markUnsaved();
               }}
               onKeyUp={saveSelection}
               onClick={handleEditorClick}
@@ -1638,6 +1635,18 @@ export function WordEditor({
             Guhit: <strong className="text-blue-700">{doodles.length} box</strong> •{' '}
             <strong className="text-indigo-700">{overlayStrokes.length} hagod sa pahina</strong>
           </span>
+          {!readOnly && (
+            <span
+              className={`font-semibold ${
+                hasUnsavedChanges ? 'text-amber-700' : 'text-emerald-700'
+              }`}
+            >
+              •{' '}
+              {hasUnsavedChanges
+                ? 'Hindi pa nai-save (Manual na pag-save)'
+                : 'Nai-save na'}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button

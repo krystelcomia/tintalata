@@ -140,6 +140,7 @@ export interface DocumentFull extends DocumentSummary {
   doodles: DoodleItem[];
   pageDoodle: PageDoodleLayer;
   pageSettings: PageSettings;
+  isNewDraft?: boolean;
 }
 
 export interface DocumentShareItem {
