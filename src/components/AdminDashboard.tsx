@@ -99,8 +99,10 @@ export function AdminDashboard({
   const [newQuotaMB, setNewQuotaMB] = useState(50);
   const [creatingStudent, setCreatingStudent] = useState(false);
 
-  const loadDashboard = async () => {
-    setLoading(true);
+  const loadDashboard = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const params = new URLSearchParams();
       if (search.trim()) params.set('search', search.trim());
@@ -119,23 +121,42 @@ export function AdminDashboard({
       setResetRequests(rstRes.requests);
       setStorageMode(hlthRes.storageMode || '');
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Hindi ma-load ang dashboard.');
+      if (!silent) {
+        onNotify('error', err instanceof Error ? err.message : 'Hindi ma-load ang dashboard.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    void loadDashboard();
-  }, [statusFilter]);
+    const timer = window.setTimeout(() => {
+      void loadDashboard();
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [statusFilter, section, search]);
 
   useEffect(() => {
-    const onFocus = () => {
-      void loadDashboard();
+    const refreshNow = () => {
+      if (document.visibilityState === 'visible') {
+        void loadDashboard({ silent: true });
+      }
     };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [statusFilter]);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void loadDashboard({ silent: true });
+      }
+    }, 10000);
+    window.addEventListener('focus', refreshNow);
+    document.addEventListener('visibilitychange', refreshNow);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshNow);
+      document.removeEventListener('visibilitychange', refreshNow);
+    };
+  }, [statusFilter, search, section]);
 
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -745,6 +766,9 @@ export function AdminDashboard({
                                   Rehistrado: {formatDateTimeTL(s.createdAt)} • Huling pag-login:{' '}
                                   {formatDateTimeTL(s.lastLoginAt)}
                                 </p>
+                                <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                  Naka-link sa: {s.linkedAdminName || user.fullName}
+                                </span>
                               </td>
                               <td className="px-4 py-3.5">
                                 <span

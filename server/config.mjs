@@ -2,11 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const DATABASE_URL =
+const DATABASE_URL = String(
   process.env.POSTGRES_URL ||
-  process.env.DATABASE_URL ||
-  process.env.POSTGRES_PRISMA_URL ||
-  '';
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    process.env.NEON_DATABASE_URL ||
+    ''
+).trim();
 
 const DATA_DIR = process.env.VERCEL
   ? '/tmp/tintalata-data'
@@ -53,7 +57,8 @@ export const CONFIG = {
       : 'sqlite-local',
   SESSION_SECRET: resolveSessionSecret(),
   SESSION_COOKIE_NAME: 'tintalata_session',
-  SESSION_TTL_MS: 7 * 24 * 60 * 60 * 1000,
+  SESSION_TTL_MS: 400 * 24 * 60 * 60 * 1000, // 400 days (browser max), auto-extended while active
+  SESSION_TOKEN_LIFETIME_MS: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years until explicit logout
   DEFAULT_STORAGE_QUOTA_BYTES: 50 * 1024 * 1024, // 50 MB
   ADMIN_SEED_EMAIL: (process.env.ADMIN_EMAIL || 'admin@tintalata.ph').toLowerCase(),
   ADMIN_SEED_PASSWORD: process.env.ADMIN_PASSWORD || 'TintalataAdmin#2026',

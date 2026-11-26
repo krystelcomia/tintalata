@@ -7,6 +7,7 @@ import { createStudentAccount, EMAIL_RE } from '../utils/accounts.mjs';
 import { asyncHandler } from '../utils/http.mjs';
 import {
   clearSessionCookie,
+  markTokenRevoked,
   requireAuth,
   setSessionCookie,
 } from '../middleware/auth.mjs';
@@ -74,7 +75,10 @@ export function createAuthRouter(db) {
 
       const createdUser = result.user;
       const now = new Date().toISOString();
-      const { cookieValue, tokenHash } = generateSessionToken();
+      const { cookieValue, tokenHash } = generateSessionToken(
+        createdUser,
+        CONFIG.SESSION_TOKEN_LIFETIME_MS
+      );
       const expiresAt = new Date(Date.now() + CONFIG.SESSION_TTL_MS).toISOString();
       await db.run(
         `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, user_agent)
@@ -87,7 +91,7 @@ export function createAuthRouter(db) {
         String(req.headers['user-agent'] || '').slice(0, 200)
       );
 
-      setSessionCookie(res, cookieValue);
+      setSessionCookie(res, cookieValue, CONFIG.SESSION_TTL_MS);
       return res.status(201).json({
         message: 'Matagumpay na nairehistro ang iyong account!',
         user: sanitizeUserPayload(createdUser),
@@ -120,7 +124,21 @@ export function createAuthRouter(db) {
           candidates[0] ||
           null;
       }
-      if (!user || !verifyPassword(rawPassword, user.password_hash)) {
+      if (!user) {
+        if (db.storageMode === 'sqlite-ephemeral') {
+          const countRow = await db.get("SELECT COUNT(*) AS cnt FROM users WHERE role = 'student'");
+          if (Number(countRow?.cnt || 0) === 0) {
+            return res.status(401).json({
+              error:
+                'Hindi natagpuan ang account sa pansamantalang database (/tmp) ng server. Kapag nag-redeploy o nag-restart ang Vercel nang walang nakakonektang PostgreSQL (POSTGRES_URL o DATABASE_URL), nabubura ang mga dating gawang account. Pakisubukang magparehistro muli o magkonekta ng PostgreSQL sa Vercel.',
+            });
+          }
+        }
+        return res.status(401).json({
+          error: 'Mali ang email/username o password na iyong inilagay.',
+        });
+      }
+      if (!verifyPassword(rawPassword, user.password_hash)) {
         return res.status(401).json({
           error: 'Mali ang email/username o password na iyong inilagay.',
         });
@@ -145,8 +163,12 @@ export function createAuthRouter(db) {
         user.id
       );
 
-      const ttlMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : CONFIG.SESSION_TTL_MS;
-      const { cookieValue, tokenHash } = generateSessionToken();
+      const ttlMs = CONFIG.SESSION_TTL_MS;
+      const refreshed = await db.get('SELECT * FROM users WHERE id = ?', user.id);
+      const { cookieValue, tokenHash } = generateSessionToken(
+        refreshed || user,
+        CONFIG.SESSION_TOKEN_LIFETIME_MS
+      );
       const expiresAt = new Date(Date.now() + ttlMs).toISOString();
       await db.run(
         `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, user_agent)
@@ -159,8 +181,7 @@ export function createAuthRouter(db) {
         String(req.headers['user-agent'] || '').slice(0, 200)
       );
 
-      setSessionCookie(res, cookieValue);
-      const refreshed = await db.get('SELECT * FROM users WHERE id = ?', user.id);
+      setSessionCookie(res, cookieValue, ttlMs);
       return res.json({
         message:
           refreshed.role === 'admin'
@@ -223,6 +244,7 @@ export function createAuthRouter(db) {
     '/logout',
     asyncHandler(async (req, res) => {
       if (req.sessionTokenHash) {
+        markTokenRevoked(req.sessionTokenHash);
         await db.run('DELETE FROM sessions WHERE token_hash = ?', req.sessionTokenHash);
       }
       clearSessionCookie(res);

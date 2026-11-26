@@ -10,7 +10,7 @@ const { Pool } = pg;
 
 function toPgPlaceholders(sql) {
   let idx = 0;
-  return sql.replace(/\?/g, () => `$${++idx}`);
+  return sql.replace(/'[^']*'|\?/g, (m) => (m === '?' ? `$${++idx}` : m));
 }
 
 function createSqliteAdapter(dbPath) {
@@ -248,6 +248,8 @@ async function ensureMigrations(db) {
   }
 }
 
+const DEFAULT_ADMIN_ID = '00000000-0000-4000-8000-000000000001';
+
 export async function seedDefaultAdmin(db) {
   const existingAdmin = await db.get("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
   if (!existingAdmin) {
@@ -256,8 +258,9 @@ export async function seedDefaultAdmin(db) {
       `INSERT INTO users (
         id, email, password_hash, full_name, student_number, course_section,
         role, status, storage_quota_bytes, storage_used_bytes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, '', 'Pangasiwaan', 'admin', 'active', ?, 0, ?, ?)`,
-      crypto.randomUUID(),
+      ) VALUES (?, ?, ?, ?, '', 'Pangasiwaan', 'admin', 'active', ?, 0, ?, ?)
+      ON CONFLICT DO NOTHING`,
+      DEFAULT_ADMIN_ID,
       CONFIG.ADMIN_SEED_EMAIL,
       hashPassword(CONFIG.ADMIN_SEED_PASSWORD),
       CONFIG.ADMIN_SEED_NAME,

@@ -24,6 +24,7 @@ export async function apiRequest<T>(
 
   const res = await fetch(path, {
     credentials: 'include',
+    cache: 'no-store',
     headers,
     ...rest,
   }).catch(() => {

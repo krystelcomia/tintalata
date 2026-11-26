@@ -29,6 +29,7 @@ interface AuthPageProps {
 
 export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPageProps) {
   const [showAdminHint, setShowAdminHint] = useState(false);
+  const [storageMode, setStorageMode] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successInfo, setSuccessInfo] = useState('');
@@ -61,6 +62,9 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     if (saved) {
       setLoginEmail(saved);
     }
+    apiRequest<{ storageMode?: string }>('/api/health')
+      .then((res) => setStorageMode(res.storageMode || ''))
+      .catch(() => {});
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -255,6 +259,15 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 </div>
               </div>
 
+              {storageMode === 'sqlite-ephemeral' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+                  <strong className="font-bold">Paalala (Pansamantalang Cloud Storage):</strong>{' '}
+                  Gumagamit pa ng pansamantalang <code>/tmp</code> database ang Vercel server na
+                  ito. Upang hindi mabura ang iyong account kapag nag-redeploy, ikonekta ang
+                  PostgreSQL (<code>POSTGRES_URL</code> o <code>DATABASE_URL</code>) sa Vercel.
+                </div>
+              )}
+
               {error && (
                 <div
                   role="alert"
@@ -398,6 +411,15 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                   </p>
                 </div>
               </div>
+
+              {storageMode === 'sqlite-ephemeral' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+                  <strong className="font-bold">Paalala (Pansamantalang Cloud Storage):</strong>{' '}
+                  Gumagamit pa ng pansamantalang <code>/tmp</code> database ang Vercel server na
+                  ito. Upang hindi mabura ang iyong account kapag nag-redeploy, ikonekta ang
+                  PostgreSQL (<code>POSTGRES_URL</code> o <code>DATABASE_URL</code>) sa Vercel.
+                </div>
+              )}
 
               {error && (
                 <div
@@ -568,6 +590,15 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                   </p>
                 </div>
               </div>
+
+              {storageMode === 'sqlite-ephemeral' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+                  <strong className="font-bold">Paalala (Pansamantalang Cloud Storage):</strong>{' '}
+                  Gumagamit pa ng pansamantalang <code>/tmp</code> database ang Vercel server na
+                  ito. Upang hindi mabura ang iyong account kapag nag-redeploy, ikonekta ang
+                  PostgreSQL (<code>POSTGRES_URL</code> o <code>DATABASE_URL</code>) sa Vercel.
+                </div>
+              )}
 
               {error && (
                 <div

@@ -1,7 +1,19 @@
+import crypto from 'node:crypto';
 import { CONFIG } from '../config.mjs';
-import { verifySignedCookie } from '../utils/crypto.mjs';
+import { verifySessionCookie } from '../utils/crypto.mjs';
 import { asyncHandler } from '../utils/http.mjs';
 import { logAudit } from '../db.mjs';
+
+const revokedTokenHashes = new Set();
+
+export function markTokenRevoked(tokenHash) {
+  if (!tokenHash) return;
+  if (revokedTokenHashes.size >= 500) {
+    const first = revokedTokenHashes.values().next().value;
+    if (first) revokedTokenHashes.delete(first);
+  }
+  revokedTokenHashes.add(tokenHash);
+}
 
 export function parseCookies(header) {
   const cookies = {};
@@ -23,18 +35,21 @@ export function parseCookies(header) {
 }
 
 function isSecureRequest(res) {
-  const req = res.req;
-  const proto = req?.headers?.['x-forwarded-proto'];
+  const req = res?.req;
+  const proto = String(req?.headers?.['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
   return Boolean(req?.secure || proto === 'https' || process.env.COOKIE_SECURE === 'true');
 }
 
-export function setSessionCookie(res, cookieValue) {
-  const maxAgeSec = Math.floor(CONFIG.SESSION_TTL_MS / 1000);
+export function setSessionCookie(res, cookieValue, ttlMs = CONFIG.SESSION_TTL_MS) {
+  const maxAgeMs = Math.max(60 * 1000, Number(ttlMs) || CONFIG.SESSION_TTL_MS);
   res.cookie(CONFIG.SESSION_COOKIE_NAME, cookieValue, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
-    maxAge: maxAgeSec * 1000,
+    maxAge: maxAgeMs,
     secure: isSecureRequest(res),
   });
 }
@@ -57,13 +72,19 @@ export function attachAuth(db) {
     const rawCookie = cookies[CONFIG.SESSION_COOKIE_NAME];
     if (!rawCookie) return next();
 
-    const tokenHash = verifySignedCookie(rawCookie);
-    if (!tokenHash) {
+    const verified = verifySessionCookie(rawCookie);
+    if (!verified) {
+      clearSessionCookie(res);
+      return next();
+    }
+    const { tokenHash, claims } = verified;
+
+    if (revokedTokenHashes.has(tokenHash)) {
       clearSessionCookie(res);
       return next();
     }
 
-    const row = await db.get(
+    let row = await db.get(
       `SELECT s.id AS session_id, s.expires_at,
               u.id, u.email, u.full_name, u.student_number, u.course_section,
               u.role, u.status, u.storage_quota_bytes, u.storage_used_bytes,
@@ -74,12 +95,78 @@ export function attachAuth(db) {
       tokenHash
     );
 
+    if (!row && db.storageMode === 'sqlite-ephemeral' && claims) {
+      if (Number(claims.exp) <= Date.now()) {
+        clearSessionCookie(res);
+        return next();
+      }
+
+      const cleanEmail = String(claims.em || '').trim().toLowerCase();
+      let dbUser =
+        (await db.get('SELECT * FROM users WHERE id = ?', claims.uid)) ||
+        (cleanEmail ? await db.get('SELECT * FROM users WHERE LOWER(email) = ?', cleanEmail) : null);
+
+      if (!dbUser && claims.rl === 'student' && cleanEmail) {
+        const now = new Date().toISOString();
+        const adminRow = await db.get("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+        await db.run(
+          `INSERT INTO users (
+            id, email, password_hash, full_name, student_number, course_section,
+            role, status, storage_quota_bytes, storage_used_bytes, managed_by_admin_id,
+            created_at, updated_at, last_login_at
+          ) VALUES (?, ?, '!ephemeral-session-synced', ?, ?, ?, 'student', 'active', ?, 0, ?, ?, ?, ?)
+          ON CONFLICT DO NOTHING`,
+          claims.uid,
+          cleanEmail,
+          String(claims.nm || cleanEmail),
+          String(claims.sn || ''),
+          String(claims.cs || ''),
+          Number(claims.qt) || CONFIG.DEFAULT_STORAGE_QUOTA_BYTES,
+          adminRow?.id || null,
+          now,
+          now,
+          now
+        );
+        dbUser =
+          (await db.get('SELECT * FROM users WHERE id = ?', claims.uid)) ||
+          (await db.get('SELECT * FROM users WHERE LOWER(email) = ?', cleanEmail));
+      }
+
+      if (dbUser) {
+        if (dbUser.status !== 'active') {
+          await db.run('DELETE FROM sessions WHERE user_id = ?', dbUser.id);
+          clearSessionCookie(res);
+          req.accountBlockedStatus = dbUser.status;
+          return next();
+        }
+        const nowIso = new Date().toISOString();
+        const expiresIso = new Date(Number(claims.exp)).toISOString();
+        await db.run(
+          `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, user_agent)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT DO NOTHING`,
+          crypto.randomUUID(),
+          dbUser.id,
+          tokenHash,
+          nowIso,
+          expiresIso,
+          String(req.headers['user-agent'] || '').slice(0, 200)
+        );
+        row = {
+          session_id: 'ephemeral-synced',
+          expires_at: expiresIso,
+          ...dbUser,
+        };
+      }
+    }
+
     if (!row) {
       clearSessionCookie(res);
       return next();
     }
 
-    if (new Date(row.expires_at).getTime() <= Date.now()) {
+    const expiresAtMs = new Date(row.expires_at).getTime();
+    if (Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) {
       await db.run('DELETE FROM sessions WHERE id = ?', row.session_id);
       clearSessionCookie(res);
       return next();
@@ -90,6 +177,26 @@ export function attachAuth(db) {
       clearSessionCookie(res);
       req.accountBlockedStatus = row.status;
       return next();
+    }
+
+    // Sliding persistent session renewal: users remain signed in indefinitely until explicit logout.
+    const isLogoutRequest = String(req.originalUrl || '').startsWith('/api/auth/logout');
+    const slidingThresholdMs = 395 * 24 * 60 * 60 * 1000;
+    if (
+      !isLogoutRequest &&
+      (!Number.isFinite(expiresAtMs) ||
+        expiresAtMs - Date.now() < slidingThresholdMs ||
+        req.originalUrl === '/api/auth/me')
+    ) {
+      const nextExpiresIso = new Date(Date.now() + CONFIG.SESSION_TTL_MS).toISOString();
+      if (row.session_id && row.session_id !== 'ephemeral-synced') {
+        await db.run(
+          'UPDATE sessions SET expires_at = ? WHERE id = ?',
+          nextExpiresIso,
+          row.session_id
+        );
+      }
+      setSessionCookie(res, rawCookie, CONFIG.SESSION_TTL_MS);
     }
 
     req.user = {

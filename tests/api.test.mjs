@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import JSZip from 'jszip';
 import { createDatabase } from '../server/db.mjs';
 import { createApp } from '../server/app.mjs';
@@ -60,6 +63,7 @@ class CookieClient {
 test('Tintalata full API, privacy, storage, trash, export, and admin authorization suite', async (t) => {
   const { db, server, baseUrl } = await startTestServer();
   t.after(async () => {
+    server.closeAllConnections?.();
     server.close();
     await db.close();
   });
@@ -519,4 +523,247 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
     }),
   });
   assert.equal(studentDLoginNew.status, 200);
+
+  // 15. API responses explicitly disable caching so account updates reflect immediately
+  const cacheHeader = health.headers.get('cache-control') || '';
+  assert.ok(cacheHeader.includes('no-store'));
+
+  // 16. Immediate mixed-case email registration -> immediate admin visibility -> fresh login
+  const studentE = new CookieClient(baseUrl);
+  const regE = await studentE.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Krystel Comia Test',
+      email: 'Krystel.Verify65@Gmail.com',
+      password: 'FourteenCharPw',
+      studentNumber: '2026-1278',
+      courseSection: 'BSIS',
+    }),
+  });
+  assert.equal(regE.status, 201);
+
+  const adminStudentsNow = await admin.request('/api/admin/students');
+  assert.ok(
+    adminStudentsNow.body.students.some((s) => s.email === 'krystel.verify65@gmail.com')
+  );
+
+  const freshLoginLower = await new CookieClient(baseUrl).request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'krystel.verify65@gmail.com',
+      password: 'FourteenCharPw',
+    }),
+  });
+  assert.equal(freshLoginLower.status, 200);
+
+  const freshLoginUpper = await new CookieClient(baseUrl).request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'KRYSTEL.VERIFY65@GMAIL.COM',
+      password: 'FourteenCharPw',
+    }),
+  });
+  assert.equal(freshLoginUpper.status, 200);
+});
+
+test('Tintalata file-backed persistence, pre-parsed Vercel body, and ephemeral diagnostics', async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tintalata-persist-'));
+  const dbFile = path.join(tmpDir, 'tintalata-test.db');
+  const closers = [];
+  t.after(async () => {
+    for (const fn of closers) {
+      await fn();
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // Instance 1 writes a student account to disk DB
+  const db1 = await createDatabase(dbFile);
+  const app1 = createApp(db1, { serveStatic: false });
+  const srv1 = http.createServer(app1);
+  await new Promise((r) => srv1.listen(0, '127.0.0.1', r));
+  const port1 = srv1.address().port;
+
+  const client1 = new CookieClient(`http://127.0.0.1:${port1}`);
+  const created = await client1.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Persistent Student',
+      email: 'persistent@paaralan.ph',
+      password: 'MyExact14Pass!',
+    }),
+  });
+  assert.equal(created.status, 201);
+
+  srv1.closeAllConnections?.();
+  srv1.close();
+  await db1.close();
+
+  // Instance 2 reopens the same disk DB and verifies account & password work immediately
+  const db2 = await createDatabase(dbFile);
+  const app2 = createApp(db2, { serveStatic: false });
+  // Simulate Vercel pre-parsed req.body wrapper and ephemeral storageMode
+  const preParsedWrapper = (req, res) => {
+    if (req.url === '/api/auth/login' && req.method === 'POST') {
+      req.body = { email: 'persistent@paaralan.ph', password: 'MyExact14Pass!' };
+    }
+    return app2(req, res);
+  };
+  const srv2 = http.createServer(preParsedWrapper);
+  await new Promise((r) => srv2.listen(0, '127.0.0.1', r));
+  closers.push(async () => {
+    srv2.closeAllConnections?.();
+    srv2.close();
+    await db2.close();
+  });
+  const port2 = srv2.address().port;
+
+  const client2 = new CookieClient(`http://127.0.0.1:${port2}`);
+  const loginAfterRestart = await client2.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'persistent@paaralan.ph',
+      password: 'MyExact14Pass!',
+    }),
+  });
+  assert.equal(loginAfterRestart.status, 200);
+  assert.equal(loginAfterRestart.body.user.email, 'persistent@paaralan.ph');
+
+  // Verify sqlite-ephemeral empty-student diagnostic when no students exist
+  const dbEph = await createDatabase(':memory:');
+  dbEph.storageMode = 'sqlite-ephemeral';
+  const appEph = createApp(dbEph, { serveStatic: false });
+  const srvEph = http.createServer(appEph);
+  await new Promise((r) => srvEph.listen(0, '127.0.0.1', r));
+  closers.push(async () => {
+    srvEph.closeAllConnections?.();
+    srvEph.close();
+    await dbEph.close();
+  });
+  const ephClient = new CookieClient(`http://127.0.0.1:${srvEph.address().port}`);
+  const ephLogin = await ephClient.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'missing@paaralan.ph', password: 'SomePassword123' }),
+  });
+  assert.equal(ephLogin.status, 401);
+  assert.ok(ephLogin.body.error.includes('POSTGRES_URL'));
+
+  // Simulate multi-instance Vercel serverless scaling under sqlite-ephemeral:
+  // Admin logs in on Container A -> 4 parallel /api/admin/* calls hit Container B cleanly without 401 bounce
+  const adminEphLogin = await ephClient.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: CONFIG.ADMIN_SEED_EMAIL,
+      password: CONFIG.ADMIN_SEED_PASSWORD,
+      rememberMe: true,
+    }),
+  });
+  assert.equal(adminEphLogin.status, 200);
+  assert.ok(ephClient.cookie);
+
+  const dbEph2 = await createDatabase(':memory:');
+  dbEph2.storageMode = 'sqlite-ephemeral';
+  const appEph2 = createApp(dbEph2, { serveStatic: false });
+  const srvEph2 = http.createServer(appEph2);
+  await new Promise((r) => srvEph2.listen(0, '127.0.0.1', r));
+  closers.push(async () => {
+    srvEph2.closeAllConnections?.();
+    srvEph2.close();
+    await dbEph2.close();
+  });
+
+  const ephClientContainerB = new CookieClient(`http://127.0.0.1:${srvEph2.address().port}`);
+  ephClientContainerB.cookie = ephClient.cookie;
+  const [ov2, st2, log2, rst2] = await Promise.all([
+    ephClientContainerB.request('/api/admin/overview'),
+    ephClientContainerB.request('/api/admin/students'),
+    ephClientContainerB.request('/api/admin/audit-logs'),
+    ephClientContainerB.request('/api/admin/password-resets'),
+  ]);
+  assert.equal(ov2.status, 200);
+  assert.equal(st2.status, 200);
+  assert.equal(log2.status, 200);
+  assert.equal(rst2.status, 200);
+
+  // Student registers on Container A -> Container B accepts valid signed session without kicking back to /login
+  const studentEphA = new CookieClient(`http://127.0.0.1:${srvEph.address().port}`);
+  const studentEphReg = await studentEphA.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Serverless Student',
+      email: 'serverless@paaralan.ph',
+      password: 'Password1234',
+    }),
+  });
+  assert.equal(studentEphReg.status, 201);
+
+  const studentEphB = new CookieClient(`http://127.0.0.1:${srvEph2.address().port}`);
+  studentEphB.cookie = studentEphA.cookie;
+  const studentMeB = await studentEphB.request('/api/auth/me');
+  assert.equal(studentMeB.status, 200);
+  assert.equal(studentMeB.body.user.email, 'serverless@paaralan.ph');
+});
+
+test('Tintalata sliding persistent sessions and unlinked student auto-linking to Admin', async (t) => {
+  const { db, server, baseUrl } = await startTestServer();
+  t.after(async () => {
+    server.closeAllConnections?.();
+    server.close();
+    await db.close();
+  });
+
+  const admin = new CookieClient(baseUrl);
+  const adminLogin = await admin.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: CONFIG.ADMIN_SEED_EMAIL,
+      password: CONFIG.ADMIN_SEED_PASSWORD,
+      rememberMe: false,
+    }),
+  });
+  assert.equal(adminLogin.status, 200);
+  const setCookieHeader = adminLogin.headers.get('set-cookie') || '';
+  assert.ok(setCookieHeader.includes('Max-Age=34560000'));
+
+  // Insert/register a student, then simulate legacy/unlinked managed_by_admin_id = NULL
+  const student = new CookieClient(baseUrl);
+  const reg = await student.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Unlinked Student',
+      email: 'unlinked@paaralan.ph',
+      password: 'Password1234',
+    }),
+  });
+  assert.equal(reg.status, 201);
+  await db.run('UPDATE users SET managed_by_admin_id = NULL WHERE id = ?', reg.body.user.id);
+
+  // Admin list/overview auto-links unlinked student accounts and returns all linked accounts
+  const list = await admin.request('/api/admin/students');
+  assert.equal(list.status, 200);
+  const listed = list.body.students.find((s) => s.id === reg.body.user.id);
+  assert.ok(listed);
+  assert.equal(listed.linkedAdminId, adminLogin.body.user.id);
+  assert.equal(listed.linkedAdminEmail, CONFIG.ADMIN_SEED_EMAIL);
+
+  // Simulate session approaching renewal threshold (< 395 days left): using the app slides expires_at forward
+  const nearTerm = new Date(Date.now() + 100 * 24 * 60 * 60 * 1000).toISOString();
+  await db.run('UPDATE sessions SET expires_at = ? WHERE user_id = ?', nearTerm, reg.body.user.id);
+
+  const meRes = await student.request('/api/auth/me');
+  assert.equal(meRes.status, 200);
+  const renewedCookie = meRes.headers.get('set-cookie') || '';
+  assert.ok(renewedCookie.includes('Max-Age=34560000'));
+
+  const sessionRow = await db.get(
+    'SELECT expires_at FROM sessions WHERE user_id = ? LIMIT 1',
+    reg.body.user.id
+  );
+  assert.ok(new Date(sessionRow.expires_at).getTime() > Date.now() + 395 * 24 * 60 * 60 * 1000);
+
+  // Explicit logout revokes session cleanly
+  const logoutRes = await student.request('/api/auth/logout', { method: 'POST' });
+  assert.equal(logoutRes.status, 200);
+  const afterLogoutMe = await student.request('/api/auth/me');
+  assert.equal(afterLogoutMe.status, 401);
 });

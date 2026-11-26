@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AdminStudent, StorageSummary, ToastMessage, User } from './types';
 import { apiRequest } from './utils/api';
 import { AuthPage, type AuthRouteMode } from './components/AuthPage';
@@ -51,9 +51,16 @@ export function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  const isLoggedInRef = useRef(false);
+
   const notify = useCallback((type: 'success' | 'error' | 'info', text: string) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setToasts((prev) => [...prev, { id, type, text }]);
+    setToasts((prev) => {
+      if (prev.some((t) => t.type === type && t.text === text)) {
+        return prev;
+      }
+      return [...prev, { id, type, text }];
+    });
     window.setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4500);
@@ -66,11 +73,13 @@ export function App() {
   useEffect(() => {
     apiRequest<{ user: User; storage: StorageSummary; pendingGrantCount: number }>('/api/auth/me')
       .then((res) => {
+        isLoggedInRef.current = true;
         setUser(res.user);
         setStorage(res.storage);
         setPendingGrants(res.pendingGrantCount || 0);
       })
       .catch(() => {
+        isLoggedInRef.current = false;
         setUser(null);
       })
       .finally(() => setBootstrapping(false));
@@ -80,6 +89,10 @@ export function App() {
   // clear client state cleanly and return to /login instead of showing dead dashboard controls.
   useEffect(() => {
     const onUnauthorized = (ev: Event) => {
+      if (!isLoggedInRef.current) {
+        return;
+      }
+      isLoggedInRef.current = false;
       const detail = (ev as CustomEvent<string>).detail;
       setUser(null);
       setStorage(null);
@@ -138,6 +151,7 @@ export function App() {
   }, [bootstrapping, user, storage, pathname, navigate, notify]);
 
   const handleAuthSuccess = (nextUser: User, nextStorage: StorageSummary, message: string) => {
+    isLoggedInRef.current = true;
     setUser(nextUser);
     setStorage(nextStorage);
     setSupportStudent(null);
@@ -146,6 +160,7 @@ export function App() {
   };
 
   const handleLogout = async () => {
+    isLoggedInRef.current = false;
     try {
       const res = await apiRequest<{ message: string }>('/api/auth/logout', { method: 'POST' });
       notify('info', res.message);

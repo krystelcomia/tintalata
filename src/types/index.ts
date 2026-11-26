@@ -235,6 +235,9 @@ export interface AdminStudent {
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;
+  linkedAdminId?: string | null;
+  linkedAdminName?: string;
+  linkedAdminEmail?: string;
   authorization: {
     state: 'none' | 'pending' | 'approved';
     grantId?: string;

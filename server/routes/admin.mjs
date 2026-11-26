@@ -17,6 +17,21 @@ async function expireStaleGrants(db) {
   );
 }
 
+async function ensureStudentsLinkedToAdmin(db, adminId) {
+  if (!adminId) return;
+  await db.run(
+    `UPDATE users
+     SET managed_by_admin_id = ?
+     WHERE LOWER(role) = 'student'
+       AND (
+         managed_by_admin_id IS NULL
+         OR managed_by_admin_id = ''
+         OR managed_by_admin_id NOT IN (SELECT id FROM users WHERE LOWER(role) = 'admin')
+       )`,
+    adminId
+  );
+}
+
 async function getLatestGrantStatus(db, studentId) {
   const approved = await db.get(
     `SELECT id, permission_level, expires_at, reason, responded_at
@@ -66,8 +81,9 @@ export function createAdminRouter(db) {
 
   router.get(
     '/overview',
-    asyncHandler(async (_req, res) => {
+    asyncHandler(async (req, res) => {
       await expireStaleGrants(db);
+      await ensureStudentsLinkedToAdmin(db, req.user.id);
       const counts = await db.get(
         `SELECT
           COUNT(*) AS total_students,
@@ -77,7 +93,7 @@ export function createAdminRouter(db) {
           COALESCE(SUM(storage_used_bytes), 0) AS total_used_bytes,
           COALESCE(SUM(storage_quota_bytes), 0) AS total_quota_bytes
          FROM users
-         WHERE role = 'student'`
+         WHERE LOWER(role) = 'student'`
       );
 
       const docTotals = await db.get(
@@ -86,7 +102,7 @@ export function createAdminRouter(db) {
           COALESCE(SUM(CASE WHEN d.is_deleted = 1 THEN 1 ELSE 0 END), 0) AS trash_docs
          FROM documents d
          JOIN users u ON u.id = d.user_id
-         WHERE u.role = 'student'`
+         WHERE LOWER(u.role) = 'student'`
       );
 
       const authorizedRow = await db.get(
@@ -116,17 +132,20 @@ export function createAdminRouter(db) {
     '/students',
     asyncHandler(async (req, res) => {
       await expireStaleGrants(db);
+      await ensureStudentsLinkedToAdmin(db, req.user.id);
       const { search = '', status = 'all' } = req.query;
 
       let sql = `
         SELECT u.id, u.email, u.full_name, u.student_number, u.course_section,
                u.status, u.storage_quota_bytes, u.storage_used_bytes,
+               u.managed_by_admin_id, adm.full_name AS linked_admin_name, adm.email AS linked_admin_email,
                u.created_at, u.updated_at, u.last_login_at,
                (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.is_deleted = 0) AS active_doc_count,
                (SELECT COUNT(*) FROM folders f WHERE f.user_id = u.id AND f.is_deleted = 0) AS active_folder_count,
                (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.is_deleted = 1) AS trash_doc_count
         FROM users u
-        WHERE u.role = 'student'
+        LEFT JOIN users adm ON adm.id = u.managed_by_admin_id
+        WHERE LOWER(u.role) = 'student'
       `;
       const params = [];
 
@@ -167,6 +186,9 @@ export function createAdminRouter(db) {
           createdAt: r.created_at,
           updatedAt: r.updated_at,
           lastLoginAt: r.last_login_at,
+          linkedAdminId: r.managed_by_admin_id || req.user.id,
+          linkedAdminName: r.linked_admin_name || req.user.fullName,
+          linkedAdminEmail: r.linked_admin_email || req.user.email,
           authorization: await getLatestGrantStatus(db, r.id),
         }))
       );
