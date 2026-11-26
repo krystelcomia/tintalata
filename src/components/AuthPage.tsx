@@ -1155,7 +1155,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                         setRegRecoveryCode(e.target.value.replace(/\D/g, '').slice(0, 6))
                       }
                       placeholder="Ilagay ang 6-digit na numero (hal. 042819)"
-                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3.5 py-2.5 font-mono text-sm tracking-widest focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
                     />
                   </div>
 
