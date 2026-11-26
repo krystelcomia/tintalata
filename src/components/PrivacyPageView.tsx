@@ -4,12 +4,14 @@ import { apiRequest, formatDateTimeTL } from '../utils/api';
 import type { AccessGrant, AuditLogEntry } from '../types';
 
 interface PrivacyPageViewProps {
+  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onNotify: (type: 'success' | 'error' | 'info', text: string) => void;
   onPendingCountChange: (count: number) => void;
 }
 
 export function PrivacyPageView({
+  headerActions,
   onOpenSidebar,
   onNotify,
   onPendingCountChange,
@@ -89,27 +91,30 @@ export function PrivacyPageView({
 
   return (
     <div className="flex h-full flex-col bg-[#f4f8ff]">
-      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 min-h-[76px] flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onOpenSidebar}
-          aria-label="Buksan ang Sidebar"
-          className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-        <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
-          <ShieldCheck className="h-5 w-5" />
+      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onOpenSidebar}
+            aria-label="Buksan ang Sidebar"
+            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-900">
+              Pagkapribado at Pahintulot sa Pag-access
+            </h2>
+            <p className="text-xs text-slate-500">
+              Ikaw ang may buong kontrol kung maaaring magbigay ng suporta ang Tagapangasiwa sa
+              iyong mga file.
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-extrabold text-slate-900">
-            Pagkapribado at Pahintulot sa Pag-access
-          </h2>
-          <p className="text-xs text-slate-500">
-            Ikaw ang may buong kontrol kung maaaring magbigay ng suporta ang Tagapangasiwa sa
-            iyong mga file.
-          </p>
-        </div>
+        {headerActions}
       </header>
 
       <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">

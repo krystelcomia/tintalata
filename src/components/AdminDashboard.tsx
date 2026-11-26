@@ -19,12 +19,20 @@ import {
   Menu,
   RefreshCw,
   UserPlus,
+  CheckCircle2,
+  XCircle,
+  Mail,
+  AlertTriangle,
+  Send,
+  Info,
 } from 'lucide-react';
 import type {
   AdminOverview,
   AdminStudent,
   AuditLogEntry,
+  PasswordResetCounts,
   PasswordResetRequest,
+  PasswordResetStatus,
   User,
 } from '../types';
 import { apiRequest, formatDateTimeTL } from '../utils/api';
@@ -58,6 +66,14 @@ export function AdminDashboard({
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
+  const [resetCounts, setResetCounts] = useState<PasswordResetCounts>({
+    all: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    completed: 0,
+  });
+  const [resetStatusFilter, setResetStatusFilter] = useState<'all' | PasswordResetStatus>('all');
   const [storageMode, setStorageMode] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -81,10 +97,11 @@ export function AdminDashboard({
   const [reqReason, setReqReason] = useState('');
   const [sendingReq, setSendingReq] = useState(false);
 
-  // Password Reset Modal
-  const [resetTarget, setResetTarget] = useState<PasswordResetRequest | null>(null);
-  const [tempPassword, setTempPassword] = useState('');
-  const [resolvingReset, setResolvingReset] = useState(false);
+  // Password Reset Review Modals
+  const [resetDetailTarget, setResetDetailTarget] = useState<PasswordResetRequest | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<PasswordResetRequest | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   // Delete Student Confirm
   const [deleteTarget, setDeleteTarget] = useState<AdminStudent | null>(null);
@@ -112,13 +129,18 @@ export function AdminDashboard({
         apiRequest<{ overview: AdminOverview }>('/api/admin/overview'),
         apiRequest<{ students: AdminStudent[] }>(`/api/admin/students?${params.toString()}`),
         apiRequest<{ logs: AuditLogEntry[] }>('/api/admin/audit-logs'),
-        apiRequest<{ requests: PasswordResetRequest[] }>('/api/admin/password-resets'),
+        apiRequest<{ requests: PasswordResetRequest[]; counts?: PasswordResetCounts }>(
+          `/api/admin/password-resets?status=${resetStatusFilter}`
+        ),
         apiRequest<{ storageMode?: string }>('/api/health').catch(() => ({ storageMode: '' })),
       ]);
       setOverview(ovRes.overview);
       setStudents(stRes.students);
       setAuditLogs(logRes.logs);
       setResetRequests(rstRes.requests);
+      if (rstRes.counts) {
+        setResetCounts(rstRes.counts);
+      }
       setStorageMode(hlthRes.storageMode || '');
     } catch (err) {
       if (!silent) {
@@ -136,7 +158,7 @@ export function AdminDashboard({
       void loadDashboard();
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [statusFilter, section, search]);
+  }, [statusFilter, resetStatusFilter, section, search]);
 
   useEffect(() => {
     const refreshNow = () => {
@@ -156,7 +178,7 @@ export function AdminDashboard({
       window.removeEventListener('focus', refreshNow);
       document.removeEventListener('visibilitychange', refreshNow);
     };
-  }, [statusFilter, search, section]);
+  }, [statusFilter, resetStatusFilter, search, section]);
 
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -248,39 +270,95 @@ export function AdminDashboard({
     }
   };
 
-  const handleResolveReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!resetTarget) return;
-    setResolvingReset(true);
+  const handleApproveReset = async (r: PasswordResetRequest) => {
+    setActionBusyId(r.id);
     try {
-      const res = await apiRequest<{ message: string }>(
-        `/api/admin/password-resets/${resetTarget.id}/resolve`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ action: 'reset', newPassword: tempPassword }),
-        }
-      );
-      onNotify('success', res.message);
-      setResetTarget(null);
-      setTempPassword('');
+      const res = await apiRequest<{
+        message: string;
+        referenceNumber: string;
+        expiresAt: string;
+        emailDelivery?: { sent: boolean; error?: string | null };
+      }>(`/api/admin/password-resets/${r.id}/approve`, {
+        method: 'POST',
+      });
+      if (res.emailDelivery && !res.emailDelivery.sent) {
+        onNotify(
+          'info',
+          `Aprubado ang request at nalikha ang in-app notification, ngunit nabigo ang email (${
+            res.emailDelivery.error || 'walang SMTP configuration'
+          }).`
+        );
+      } else {
+        onNotify('success', res.message);
+      }
+      setResetDetailTarget(null);
       await loadDashboard();
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Nabigo ang pag-reset ng password.');
+      onNotify('error', err instanceof Error ? err.message : 'Nabigo ang pag-apruba sa request.');
     } finally {
-      setResolvingReset(false);
+      setActionBusyId(null);
     }
   };
 
-  const handleDismissReset = async (id: string) => {
+  const handleRejectReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectTarget) return;
+    if (rejectReason.trim().length < 3) {
+      onNotify('error', 'Maglagay ng malinaw na dahilan ng pagtanggi (hindi bababa sa 3 karakter).');
+      return;
+    }
+    setActionBusyId(rejectTarget.id);
     try {
-      const res = await apiRequest<{ message: string }>(`/api/admin/password-resets/${id}/resolve`, {
+      const res = await apiRequest<{
+        message: string;
+        emailDelivery?: { sent: boolean; error?: string | null };
+      }>(`/api/admin/password-resets/${rejectTarget.id}/reject`, {
         method: 'POST',
-        body: JSON.stringify({ action: 'dismiss' }),
+        body: JSON.stringify({ reason: rejectReason.trim() }),
       });
-      onNotify('info', res.message);
+      if (res.emailDelivery && !res.emailDelivery.sent) {
+        onNotify(
+          'info',
+          `Tinanggihan ang request at nai-save ang abiso, ngunit nabigo ang email (${
+            res.emailDelivery.error || 'walang SMTP configuration'
+          }).`
+        );
+      } else {
+        onNotify('success', res.message);
+      }
+      setRejectTarget(null);
+      setRejectReason('');
+      setResetDetailTarget(null);
       await loadDashboard();
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'May error sa pagsasara.');
+      onNotify('error', err instanceof Error ? err.message : 'Nabigo ang pagtanggi sa request.');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const handleResendResetEmail = async (r: PasswordResetRequest) => {
+    setActionBusyId(r.id);
+    try {
+      const res = await apiRequest<{
+        message: string;
+        emailDelivery?: { sent: boolean; error?: string | null };
+      }>(`/api/admin/password-resets/${r.id}/resend-email`, {
+        method: 'POST',
+      });
+      if (res.emailDelivery && !res.emailDelivery.sent) {
+        onNotify(
+          'error',
+          `Hindi pa rin naipadala ang email: ${res.emailDelivery.error || 'walang email configuration.'}`
+        );
+      } else {
+        onNotify('success', res.message);
+      }
+      await loadDashboard();
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : 'Nabigo ang muling pagpapadala ng email.');
+    } finally {
+      setActionBusyId(null);
     }
   };
 
@@ -298,7 +376,10 @@ export function AdminDashboard({
     }
   };
 
-  const pendingResetsCount = resetRequests.filter((r) => r.status === 'pending').length;
+  const pendingResetsCount =
+    overview?.pendingResetCount ??
+    resetCounts.pending ??
+    resetRequests.filter((r) => r.status === 'pending').length;
 
   const navClass = (active: boolean) =>
     `w-full flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-bold transition ${
@@ -458,7 +539,8 @@ export function AdminDashboard({
     },
     resets: {
       title: 'Mga Kahilingan sa Pag-reset ng Password',
-      subtitle: 'Magtalaga ng pansamantalang password para sa mga mag-aaral na nakalimot ng password.',
+      subtitle:
+        'Suriin, aprubahan gamit ang secure reset link sa email, o tanggihan ang mga kahilingan ng mag-aaral.',
     },
     audit: {
       title: 'Talaan ng Aktibidad sa Seguridad',
@@ -536,6 +618,34 @@ export function AdminDashboard({
           )}
           {section === 'overview' && (
             <>
+              {pendingResetsCount > 0 && (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                      <KeyRound className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-extrabold text-amber-950">
+                        May {pendingResetsCount} nakabinbing Password Reset Request
+                      </p>
+                      <p className="text-xs text-amber-800">
+                        Naghihintay ng iyong pag-apruba o pagtanggi bago makagawa ng bagong password ang mag-aaral.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetStatusFilter('pending');
+                      setSection('resets');
+                    }}
+                    className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700 transition cursor-pointer"
+                  >
+                    Suriin Ngayon ({pendingResetsCount})
+                  </button>
+                </div>
+              )}
+
               {overview && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                   <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-700 to-blue-600 p-5 text-white shadow-sm">
@@ -945,69 +1055,168 @@ export function AdminDashboard({
           )}
 
           {section === 'resets' && (
-            <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs divide-y divide-slate-100">
-              {resetRequests.length === 0 ? (
-                <p className="p-10 text-center text-sm text-slate-500">
-                  Walang kahilingan sa pag-reset ng password sa ngayon.
-                </p>
-              ) : (
-                resetRequests.map((r) => (
-                  <div
-                    key={r.id}
-                    className="px-5 py-4 flex flex-wrap items-center justify-between gap-4 hover:bg-blue-50/30"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-bold text-slate-900">{r.fullName}</p>
-                        <span
-                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                            r.status === 'pending'
-                              ? 'bg-amber-100 text-amber-800'
-                              : r.status === 'resolved'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {r.status === 'pending'
-                            ? 'Nakabinbin'
-                            : r.status === 'resolved'
-                              ? 'Na-reset na'
-                              : 'Isinara'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600">
-                        {r.email} • ID: {r.studentNumber || '—'} • Kurso: {r.courseSection || '—'}
-                      </p>
-                      <p className="text-xs text-slate-500">Tala: {r.reason}</p>
-                      <p className="text-[11px] text-slate-400">
-                        Hiniling noong: {formatDateTimeTL(r.createdAt)}
-                      </p>
-                    </div>
+            <div className="space-y-4">
+              {/* Filter Tabs */}
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-100 bg-white p-3 shadow-2xs">
+                {(
+                  [
+                    { key: 'all', label: 'Lahat', count: resetCounts.all },
+                    { key: 'pending', label: 'Pending', count: resetCounts.pending },
+                    { key: 'approved', label: 'Approved', count: resetCounts.approved },
+                    { key: 'rejected', label: 'Rejected', count: resetCounts.rejected },
+                    { key: 'completed', label: 'Completed', count: resetCounts.completed },
+                  ] as const
+                ).map((tab) => {
+                  const active = resetStatusFilter === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setResetStatusFilter(tab.key)}
+                      className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+                        active
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-blue-50/70 text-slate-700 hover:bg-blue-100'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
+                          active ? 'bg-white/20 text-white' : 'bg-white text-slate-700'
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-                    {r.status === 'pending' && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setResetTarget(r);
-                            setTempPassword('');
-                          }}
-                          className="rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-700"
-                        >
-                          Magtalaga ng Bagong Password
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDismissReset(r.id)}
-                          className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                        >
-                          Isara
-                        </button>
+              <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs divide-y divide-slate-100">
+                {resetRequests.length === 0 ? (
+                  <p className="p-10 text-center text-sm text-slate-500">
+                    Walang kahilingan sa kategoryang ito sa ngayon.
+                  </p>
+                ) : (
+                  resetRequests.map((r) => {
+                    const isBusy = actionBusyId === r.id;
+                    const statusBadge =
+                      r.status === 'pending'
+                        ? { label: 'Pending', cls: 'bg-amber-100 text-amber-800 border-amber-200' }
+                        : r.status === 'approved'
+                        ? { label: 'Approved', cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
+                        : r.status === 'rejected'
+                        ? { label: 'Rejected', cls: 'bg-rose-100 text-rose-800 border-rose-200' }
+                        : { label: 'Completed', cls: 'bg-blue-100 text-blue-800 border-blue-200' };
+
+                    return (
+                      <div
+                        key={r.id}
+                        className="px-5 py-4 flex flex-wrap items-start justify-between gap-4 hover:bg-blue-50/30"
+                      >
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-bold text-slate-900">{r.fullName}</p>
+                            {r.referenceNumber && (
+                              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-700">
+                                {r.referenceNumber}
+                              </span>
+                            )}
+                            <span
+                              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${statusBadge.cls}`}
+                            >
+                              {statusBadge.label}
+                            </span>
+                            {r.emailDelivery?.status === 'sent' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                <Mail className="h-3 w-3" />
+                                Email Naipadala
+                              </span>
+                            )}
+                            {r.emailDelivery?.status === 'failed' && (
+                              <span
+                                title={r.emailDelivery.error || 'Nabigo ang pagpapadala ng email'}
+                                className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-semibold text-rose-700"
+                              >
+                                <AlertTriangle className="h-3 w-3" />
+                                Nabigo ang Email
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-600">
+                            {r.email} • ID: {r.studentNumber || '—'} • Kurso: {r.courseSection || '—'}
+                          </p>
+                          <p className="text-xs text-slate-700">
+                            <strong>Dahilan:</strong> {r.reason}
+                          </p>
+                          {r.rejectionReason && (
+                            <p className="text-xs text-rose-700">
+                              <strong>Dahilan ng Pagtanggi:</strong> {r.rejectionReason}
+                            </p>
+                          )}
+                          <p className="text-[11px] text-slate-400">
+                            Isinumite: {formatDateTimeTL(r.createdAt)}
+                            {(r.approvedAt || r.rejectedAt || r.resolvedAt)
+                              ? ` • Sinuri noong ${formatDateTimeTL(
+                                  r.approvedAt || r.rejectedAt || r.resolvedAt
+                                )}`
+                              : ''}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setResetDetailTarget(r)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 transition cursor-pointer"
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                            Detalye
+                          </button>
+
+                          {r.status === 'pending' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => void handleApproveReset(r)}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60 transition cursor-pointer"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                {isBusy ? 'Pinoproseso...' : 'Aprubahan'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  setRejectTarget(r);
+                                  setRejectReason('');
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60 transition cursor-pointer"
+                              >
+                                <XCircle className="h-3.5 w-3.5" />
+                                Tanggihan
+                              </button>
+                            </>
+                          )}
+
+                          {(r.status === 'approved' || r.status === 'rejected') && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => void handleResendResetEmail(r)}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-60 transition cursor-pointer"
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              {isBusy ? 'Ipinapadala...' : 'Ipadala Muli ang Email'}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))
-              )}
+                    );
+                  })
+                )}
+              </div>
             </div>
           )}
 
@@ -1212,43 +1421,221 @@ export function AdminDashboard({
         </div>
       )}
 
-      {/* Resolve Password Reset Modal */}
-      {resetTarget && (
+      {/* Password Reset Request Details Modal */}
+      {resetDetailTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-blue-100 overflow-hidden text-xs">
+            <div className="flex items-center justify-between bg-blue-700 px-5 py-4 text-white">
+              <div className="flex items-center gap-2">
+                <KeyRound className="h-5 w-5" />
+                <div>
+                  <h3 className="text-sm font-bold">Detalye ng Password Reset Request</h3>
+                  <p className="font-mono text-[11px] text-blue-100">
+                    {resetDetailTarget.referenceNumber || resetDetailTarget.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetDetailTarget(null)}
+                className="rounded-lg p-1 hover:bg-white/15 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Buong Pangalan</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{resetDetailTarget.fullName}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Katayuan</p>
+                  <p className="font-bold uppercase text-blue-700 mt-0.5">{resetDetailTarget.status}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Nakarehistrong Email</p>
+                  <p className="font-medium text-slate-800 mt-0.5 break-all">
+                    {resetDetailTarget.email}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Student ID & Kurso</p>
+                  <p className="font-medium text-slate-800 mt-0.5">
+                    {resetDetailTarget.studentNumber || '—'} • {resetDetailTarget.courseSection || '—'}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Dahilan ng Paghingi ng Reset
+                </p>
+                <p className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-slate-800">
+                  {resetDetailTarget.reason}
+                </p>
+              </div>
+
+              {resetDetailTarget.rejectionReason && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-rose-600 mb-1">
+                    Dahilan ng Pagtanggi ng Admin
+                  </p>
+                  <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-rose-900">
+                    {resetDetailTarget.rejectionReason}
+                  </p>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-slate-200 p-3 space-y-1 text-[11px] text-slate-600">
+                <p>
+                  <strong>Isinumite noong:</strong> {formatDateTimeTL(resetDetailTarget.createdAt)}
+                </p>
+                {(resetDetailTarget.approvedAt ||
+                  resetDetailTarget.rejectedAt ||
+                  resetDetailTarget.resolvedAt) && (
+                  <p>
+                    <strong>Desisyon ng Admin:</strong>{' '}
+                    {formatDateTimeTL(
+                      resetDetailTarget.approvedAt ||
+                        resetDetailTarget.rejectedAt ||
+                        resetDetailTarget.resolvedAt
+                    )}
+                  </p>
+                )}
+                {resetDetailTarget.tokenExpiresAt && (
+                  <p>
+                    <strong>Bisa ng Reset Link:</strong>{' '}
+                    {formatDateTimeTL(resetDetailTarget.tokenExpiresAt)}
+                    {resetDetailTarget.tokenUsedAt ? ' (Nagamit na)' : ''}
+                  </p>
+                )}
+                {resetDetailTarget.completedAt && (
+                  <p>
+                    <strong>Nakumpleto noong:</strong> {formatDateTimeTL(resetDetailTarget.completedAt)}
+                  </p>
+                )}
+                <p>
+                  <strong>Katayuan ng Email Notification:</strong>{' '}
+                  {resetDetailTarget.emailDelivery?.status === 'sent'
+                    ? `Naipadala${
+                        resetDetailTarget.emailDelivery.sentAt
+                          ? ` (${formatDateTimeTL(resetDetailTarget.emailDelivery.sentAt)})`
+                          : ''
+                      }`
+                    : resetDetailTarget.emailDelivery?.status === 'failed'
+                    ? `Nabigo (${resetDetailTarget.emailDelivery.error || 'walang detalye'})`
+                    : 'Hindi pa naipapadala'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                {resetDetailTarget.status === 'pending' && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={actionBusyId === resetDetailTarget.id}
+                      onClick={() => void handleApproveReset(resetDetailTarget)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-700 disabled:opacity-60 cursor-pointer"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Aprubahan at Ipadala ang Link
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionBusyId === resetDetailTarget.id}
+                      onClick={() => {
+                        setRejectTarget(resetDetailTarget);
+                        setRejectReason('');
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 font-bold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Tanggihan
+                    </button>
+                  </>
+                )}
+
+                {(resetDetailTarget.status === 'approved' || resetDetailTarget.status === 'rejected') && (
+                  <button
+                    type="button"
+                    disabled={actionBusyId === resetDetailTarget.id}
+                    onClick={() => void handleResendResetEmail(resetDetailTarget)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 font-bold text-blue-800 hover:bg-blue-100 cursor-pointer"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    Ipadala Muli ang Email
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setResetDetailTarget(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Isara
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Password Reset Modal (Required Reason) */}
+      {rejectTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
           <form
-            onSubmit={handleResolveReset}
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-blue-100 space-y-4 text-xs"
+            onSubmit={handleRejectReset}
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-rose-200 space-y-4 text-xs"
           >
-            <h3 className="text-base font-bold text-slate-900">
-              I-reset ang Password ni {resetTarget.fullName}
-            </h3>
-            <p className="text-slate-600">
-              Maglagay ng pansamantalang password (hindi bababa sa 8 karakter) para sa account na{' '}
-              <strong>{resetTarget.email}</strong>.
-            </p>
-            <input
-              type="text"
-              required
-              minLength={8}
-              value={tempPassword}
-              onChange={(e) => setTempPassword(e.target.value)}
-              placeholder="Ilagay ang pansamantalang password"
-              className="w-full rounded-xl border border-blue-200 px-3.5 py-2.5 text-sm"
-            />
+            <div className="flex items-start gap-2.5">
+              <div className="h-9 w-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <XCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Tanggihan ang Request ni {rejectTarget.fullName}
+                </h3>
+                <p className="text-slate-600 mt-0.5">
+                  Kinakailangan ang malinaw na dahilan. Ipapadala ito sa email ng mag-aaral ({rejectTarget.email})
+                  at sa kanyang in-app notification.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1.5">
+                Dahilan ng Pagtanggi *
+              </label>
+              <textarea
+                rows={3}
+                required
+                minLength={3}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Hal. Hindi tumugma ang ibinigay na Student ID sa nakarehistrong record."
+                className="w-full rounded-xl border border-rose-200 px-3.5 py-2.5 text-sm focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              />
+            </div>
+
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setResetTarget(null)}
-                className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700"
+                onClick={() => {
+                  setRejectTarget(null);
+                  setRejectReason('');
+                }}
+                className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 Kanselahin
               </button>
               <button
                 type="submit"
-                disabled={resolvingReset}
-                className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700"
+                disabled={actionBusyId === rejectTarget.id}
+                className="rounded-xl bg-rose-600 px-4 py-2 font-bold text-white hover:bg-rose-700 disabled:opacity-60 cursor-pointer"
               >
-                {resolvingReset ? 'Inia-apply...' : 'I-reset ang Password'}
+                {actionBusyId === rejectTarget.id ? 'Ipinapadala...' : 'Kumpirmahin ang Pagtanggi'}
               </button>
             </div>
           </form>

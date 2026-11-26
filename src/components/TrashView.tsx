@@ -9,6 +9,7 @@ interface TrashViewProps {
   documents: TrashDocument[];
   loading: boolean;
   readOnly?: boolean;
+  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onRestoreFolder: (id: string) => Promise<void>;
   onRestoreDocument: (id: string) => Promise<void>;
@@ -22,6 +23,7 @@ export function TrashView({
   documents,
   loading,
   readOnly = false,
+  headerActions,
   onOpenSidebar,
   onRestoreFolder,
   onRestoreDocument,
@@ -79,21 +81,24 @@ export function TrashView({
           </div>
         </div>
 
-        {!readOnly && totalItems > 0 && (
-          <button
-            type="button"
-            onClick={() =>
-              setConfirmTarget({
-                type: 'empty',
-                meta: `${documents.length} dokumento at ${folders.length} folder`,
-              })
-            }
-            className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
-          >
-            <Trash2 className="h-4 w-4" />
-            Linisin Lahat sa Basurahan
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {headerActions}
+          {!readOnly && totalItems > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setConfirmTarget({
+                  type: 'empty',
+                  meta: `${documents.length} dokumento at ${folders.length} folder`,
+                })
+              }
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
+            >
+              <Trash2 className="h-4 w-4" />
+              Linisin Lahat sa Basurahan
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">

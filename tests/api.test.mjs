@@ -17,6 +17,7 @@ async function startTestServer() {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       resolve({
+        app,
         db,
         server,
         baseUrl: `http://127.0.0.1:${port}`,
@@ -416,15 +417,25 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   });
   assert.equal(loginByStudentNum.status, 200);
 
+  const sentEmailsMain = [];
+  db.emailTransport = {
+    async send(msg) {
+      sentEmailsMain.push(msg);
+      return { provider: 'mock-smtp', messageId: `msg-main-${sentEmailsMain.length}` };
+    },
+  };
+
   const forgotReq = await studentC.request('/api/auth/forgot-password', {
     method: 'POST',
     body: JSON.stringify({
+      fullName: 'Krystel Comia',
       email: 'krystel@paaralan.ph',
       studentNumber: '20232024317',
       reason: 'Nakalimutan ang password',
     }),
   });
-  assert.equal(forgotReq.status, 200);
+  assert.equal(forgotReq.status, 201);
+  assert.ok(forgotReq.body.referenceNumber.startsWith('TRR-'));
 
   const resetList = await admin.request('/api/admin/password-resets');
   assert.equal(resetList.status, 200);
@@ -433,11 +444,27 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   );
   assert.ok(pendingReset);
 
-  const resolveReset = await admin.request(`/api/admin/password-resets/${pendingReset.id}/resolve`, {
+  const approveReset = await admin.request(`/api/admin/password-resets/${pendingReset.id}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ action: 'reset', newPassword: 'NewTempPassword1' }),
   });
-  assert.equal(resolveReset.status, 200);
+  assert.equal(approveReset.status, 200);
+  assert.equal(approveReset.body.emailDelivery.sent, true);
+
+  const approvedMail = sentEmailsMain.find((m) => m.to === 'krystel@paaralan.ph');
+  assert.ok(approvedMail);
+  const tokenMatchMain = approvedMail.text.match(/token=([a-f0-9]+)/i);
+  assert.ok(tokenMatchMain);
+  const resetTokenMain = tokenMatchMain[1];
+
+  const completeReset = await new CookieClient(baseUrl).request('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: resetTokenMain,
+      newPassword: 'NewTempPassword1',
+      confirmPassword: 'NewTempPassword1',
+    }),
+  });
+  assert.equal(completeReset.status, 200);
 
   const loginWithNewPass = await studentC.request('/api/auth/login', {
     method: 'POST',
@@ -766,4 +793,383 @@ test('Tintalata sliding persistent sessions and unlinked student auto-linking to
   assert.equal(logoutRes.status, 200);
   const afterLogoutMe = await student.request('/api/auth/me');
   assert.equal(afterLogoutMe.status, 401);
+});
+
+test('Admin-managed forgot password request, approval, rejection, email failure handling, status tracking, tokens, notifications, and rate limits', async (t) => {
+  const { app, db, server, baseUrl } = await startTestServer();
+  t.after(async () => {
+    server.closeAllConnections?.();
+    server.close();
+    await db.close();
+  });
+
+  const admin = new CookieClient(baseUrl);
+  const student = new CookieClient(baseUrl);
+  const publicClient = new CookieClient(baseUrl);
+
+  const adminLogin = await admin.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: CONFIG.ADMIN_SEED_EMAIL,
+      password: CONFIG.ADMIN_SEED_PASSWORD,
+    }),
+  });
+  assert.equal(adminLogin.status, 200);
+
+  const reg = await student.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Juan Dela Cruz',
+      email: 'juan.delacruz@paaralan.ph',
+      password: 'JuanOldPassword1',
+      studentNumber: '2026-1001',
+      courseSection: 'BSIS 3-A',
+    }),
+  });
+  assert.equal(reg.status, 201);
+
+  // Student tries unauthorized admin endpoints -> rejected
+  const unauthList = await student.request('/api/admin/password-resets');
+  assert.equal(unauthList.status, 403);
+
+  // Student logs out before submitting forgot password request
+  await student.request('/api/auth/logout', { method: 'POST' });
+
+  // 1. Identity verification rejects mismatched name or student ID
+  const mismatch = await publicClient.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Wrong Name',
+      email: 'juan.delacruz@paaralan.ph',
+      studentNumber: '2026-1001',
+      reason: 'Forgot password',
+    }),
+  });
+  assert.equal(mismatch.status, 400);
+
+  // 2. Valid request succeeds with Pending status + TRR reference code
+  const req1 = await publicClient.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Juan Dela Cruz',
+      email: 'juan.delacruz@paaralan.ph',
+      studentNumber: '2026-1001',
+      reason: 'Nagpalit ng telepono at nakalimutan ang password',
+    }),
+  });
+  assert.equal(req1.status, 201);
+  assert.equal(req1.body.status, 'pending');
+  const ref1 = req1.body.referenceNumber;
+  assert.ok(ref1.startsWith('TRR-'));
+
+  // 3. Duplicate active request is prevented
+  const dupReq = await publicClient.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Juan Dela Cruz',
+      email: 'juan.delacruz@paaralan.ph',
+      studentNumber: '2026-1001',
+      reason: 'Another attempt',
+    }),
+  });
+  assert.equal(dupReq.status, 409);
+
+  // 4. Public status tracking (without login) shows pending and protects sensitive student fields
+  const statusPending = await publicClient.request('/api/auth/reset-status', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'juan.delacruz@paaralan.ph', referenceNumber: ref1 }),
+  });
+  assert.equal(statusPending.status, 200);
+  assert.equal(statusPending.body.status, 'pending');
+  assert.equal(statusPending.body.statusMessage, 'Your request is waiting for Admin review.');
+  assert.equal(statusPending.body.courseSection, undefined);
+
+  const wrongEmailStatus = await publicClient.request('/api/auth/reset-status', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'other@paaralan.ph', referenceNumber: ref1 }),
+  });
+  assert.equal(wrongEmailStatus.status, 404);
+
+  // 5. Admin inspects pending filter & rejects request (requires reason)
+  const sentEmails = [];
+  db.emailTransport = {
+    async send(msg) {
+      sentEmails.push(msg);
+      return { provider: 'mock-smtp', messageId: `msg-${sentEmails.length}` };
+    },
+  };
+
+  const pendingList = await admin.request('/api/admin/password-resets?status=pending');
+  assert.equal(pendingList.status, 200);
+  assert.equal(pendingList.body.counts.pending, 1);
+  const req1Row = pendingList.body.requests.find((r) => r.referenceNumber === ref1);
+  assert.ok(req1Row);
+
+  const rejectNoReason = await admin.request(`/api/admin/password-resets/${req1Row.id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: '' }),
+  });
+  assert.equal(rejectNoReason.status, 400);
+
+  const rejectWithReason = await admin.request(`/api/admin/password-resets/${req1Row.id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'Kailangan ng beripikasyon sa Registrar Office' }),
+  });
+  assert.equal(rejectWithReason.status, 200);
+  assert.equal(rejectWithReason.body.emailDelivery.sent, true);
+
+  const rejectionMail = sentEmails.find((e) => e.subject.includes('Tinanggihan'));
+  assert.ok(rejectionMail);
+  assert.ok(rejectionMail.text.includes('Kailangan ng beripikasyon sa Registrar Office'));
+
+  const statusRejected = await publicClient.request('/api/auth/reset-status', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'juan.delacruz@paaralan.ph', referenceNumber: ref1 }),
+  });
+  assert.equal(statusRejected.status, 200);
+  assert.equal(statusRejected.body.status, 'rejected');
+  assert.equal(
+    statusRejected.body.statusMessage,
+    'Your request has been rejected. Check your email for the reason.'
+  );
+  assert.equal(statusRejected.body.rejectionReason, 'Kailangan ng beripikasyon sa Registrar Office');
+
+  // 6. After rejection, student can submit a fresh request; test email delivery failure handling on approval
+  const req2 = await publicClient.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Juan Dela Cruz',
+      email: 'juan.delacruz@paaralan.ph',
+      studentNumber: '2026-1001',
+      reason: 'Kumpleto na ang beripikasyon sa Registrar',
+    }),
+  });
+  assert.equal(req2.status, 201);
+  const ref2 = req2.body.referenceNumber;
+
+  const listAfterReq2 = await admin.request('/api/admin/password-resets?status=pending');
+  const req2Row = listAfterReq2.body.requests.find((r) => r.referenceNumber === ref2);
+  assert.ok(req2Row);
+
+  // Force email failure on approve -> status still becomes approved & DB records 'failed' (NEVER 'sent')
+  db.emailTransport = {
+    async send() {
+      throw new Error('Simulated SMTP timeout');
+    },
+  };
+  const approveFailedEmail = await admin.request(`/api/admin/password-resets/${req2Row.id}/approve`, {
+    method: 'POST',
+  });
+  assert.equal(approveFailedEmail.status, 200);
+  assert.equal(approveFailedEmail.body.emailDelivery.sent, false);
+
+  const failedEmailDbRow = await db.get(
+    'SELECT status, error_message FROM email_notifications WHERE reset_request_id = ? ORDER BY created_at DESC LIMIT 1',
+    req2Row.id
+  );
+  assert.equal(failedEmailDbRow.status, 'failed');
+  assert.ok(failedEmailDbRow.error_message.includes('Simulated SMTP timeout'));
+
+  // 7. Admin approval does NOT auto-change password
+  const loginStillOldBeforeReset = await student.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'juan.delacruz@paaralan.ph', password: 'JuanOldPassword1' }),
+  });
+  assert.equal(loginStillOldBeforeReset.status, 200);
+  await student.request('/api/auth/logout', { method: 'POST' });
+
+  // 8. Admin resends email with working transport -> gets valid 15-min reset link + token
+  db.emailTransport = {
+    async send(msg) {
+      sentEmails.push(msg);
+      return { provider: 'mock-smtp', messageId: `msg-${sentEmails.length}` };
+    },
+  };
+  const resendRes = await admin.request(`/api/admin/password-resets/${req2Row.id}/resend-email`, {
+    method: 'POST',
+  });
+  assert.equal(resendRes.status, 200);
+  assert.equal(resendRes.body.emailDelivery.sent, true);
+
+  const statusApproved = await publicClient.request('/api/auth/reset-status', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'juan.delacruz@paaralan.ph', referenceNumber: ref2 }),
+  });
+  assert.equal(statusApproved.status, 200);
+  assert.equal(statusApproved.body.status, 'approved');
+  assert.equal(
+    statusApproved.body.statusMessage,
+    'Your request has been approved. Please check your registered email for the reset link.'
+  );
+
+  const approvedMail = sentEmails.filter((m) => m.subject.includes('Naaprubahan')).pop();
+  assert.ok(approvedMail);
+  const tokenMatch = approvedMail.text.match(/token=([a-f0-9]+)/i);
+  assert.ok(tokenMatch);
+  const rawToken = tokenMatch[1];
+
+  // 9. Token validation + weak/mismatched password rejection + expired token check
+  const invalidTokenCheck = await publicClient.request(
+    `/api/auth/reset-password/validate?token=${'f'.repeat(64)}`
+  );
+  assert.equal(invalidTokenCheck.status, 404);
+
+  const validTokenCheck = await publicClient.request(
+    `/api/auth/reset-password/validate?token=${rawToken}`
+  );
+  assert.equal(validTokenCheck.status, 200);
+  assert.equal(validTokenCheck.body.valid, true);
+  assert.equal(validTokenCheck.body.referenceNumber, ref2);
+
+  const weakPassRes = await publicClient.request('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token: rawToken, newPassword: 'weak', confirmPassword: 'weak' }),
+  });
+  assert.equal(weakPassRes.status, 400);
+
+  const mismatchPassRes = await publicClient.request('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: rawToken,
+      newPassword: 'JuanNewPassword2026',
+      confirmPassword: 'DifferentPassword2026',
+    }),
+  });
+  assert.equal(mismatchPassRes.status, 400);
+
+  // 10. Student completes password reset -> request becomes completed -> confirmation email omits new password
+  const newPasswordPlain = 'JuanNewPassword2026';
+  const resetDone = await publicClient.request('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: rawToken,
+      newPassword: newPasswordPlain,
+      confirmPassword: newPasswordPlain,
+    }),
+  });
+  assert.equal(resetDone.status, 200);
+
+  const changedMail = sentEmails.find((m) => m.subject.includes('Napalitan ang Iyong Password'));
+  assert.ok(changedMail);
+  assert.equal(changedMail.text.includes(newPasswordPlain), false);
+  assert.equal(changedMail.html.includes(newPasswordPlain), false);
+
+  const statusCompleted = await publicClient.request('/api/auth/reset-status', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'juan.delacruz@paaralan.ph', referenceNumber: ref2 }),
+  });
+  assert.equal(statusCompleted.status, 200);
+  assert.equal(statusCompleted.body.status, 'completed');
+  assert.equal(statusCompleted.body.statusMessage, 'Your password has been successfully changed.');
+
+  // 11. Single-use token protection: second use fails with 410
+  const replayRes = await publicClient.request('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: rawToken,
+      newPassword: 'AnotherPassword123',
+      confirmPassword: 'AnotherPassword123',
+    }),
+  });
+  assert.equal(replayRes.status, 410);
+
+  // Expired token (>15 mins) check: backdate an unused token and verify validate returns 410
+  await db.run(
+    `UPDATE password_reset_tokens SET used_at = NULL, expires_at = ? WHERE request_id = ?`,
+    new Date(Date.now() - 60_000).toISOString(),
+    req2Row.id
+  );
+  await db.run(`UPDATE password_reset_requests SET status = 'approved' WHERE id = ?`, req2Row.id);
+  const expiredTokenCheck = await publicClient.request(
+    `/api/auth/reset-password/validate?token=${rawToken}`
+  );
+  assert.equal(expiredTokenCheck.status, 410);
+  await db.run(
+    `UPDATE password_reset_tokens SET used_at = ? WHERE request_id = ?`,
+    new Date().toISOString(),
+    req2Row.id
+  );
+  await db.run(`UPDATE password_reset_requests SET status = 'completed' WHERE id = ?`, req2Row.id);
+
+  // 12. Student logs in with NEW password (old fails) & sees DB-persisted notifications saved while logged out
+  const oldLoginFail = await student.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'juan.delacruz@paaralan.ph', password: 'JuanOldPassword1' }),
+  });
+  assert.equal(oldLoginFail.status, 401);
+
+  const newLoginOk = await student.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'juan.delacruz@paaralan.ph', password: newPasswordPlain }),
+  });
+  assert.equal(newLoginOk.status, 200);
+
+  const notifsRes = await student.request('/api/notifications');
+  assert.equal(notifsRes.status, 200);
+  assert.equal(notifsRes.body.unreadCount, 3);
+  const approvedNotif = notifsRes.body.notifications.find((n) => n.type === 'password_reset_approved');
+  const rejectedNotif = notifsRes.body.notifications.find((n) => n.type === 'password_reset_rejected');
+  assert.equal(
+    approvedNotif.message,
+    'Your password reset request has been approved by the Admin. Please check your registered email for the password reset link.'
+  );
+  assert.equal(
+    rejectedNotif.message,
+    'Your password reset request has been rejected. Reason: Kailangan ng beripikasyon sa Registrar Office.'
+  );
+
+  // Mark one read, then mark all read while preserving notification history
+  const readOne = await student.request(`/api/notifications/${approvedNotif.id}/read`, {
+    method: 'POST',
+  });
+  assert.equal(readOne.status, 200);
+  assert.equal(readOne.body.unreadCount, 2);
+
+  const readAll = await student.request('/api/notifications/read-all', { method: 'POST' });
+  assert.equal(readAll.status, 200);
+  assert.equal(readAll.body.unreadCount, 0);
+
+  const notifsAfterRead = await student.request('/api/notifications');
+  assert.equal(notifsAfterRead.body.notifications.length, 3);
+  assert.equal(notifsAfterRead.body.unreadCount, 0);
+
+  // 13. Activity logs contain complete audit trail
+  const auditRes = await admin.request('/api/admin/audit-logs');
+  const actions = auditRes.body.logs.map((l) => l.action);
+  for (const expectedAction of [
+    'STUDENT_PASSWORD_RESET_VERIFICATION_FAILED',
+    'STUDENT_PASSWORD_RESET_REQUESTED',
+    'ADMIN_REJECTED_PASSWORD_RESET',
+    'ADMIN_APPROVED_PASSWORD_RESET',
+    'ADMIN_RESENT_PASSWORD_RESET_EMAIL',
+    'STUDENT_PASSWORD_RESET_COMPLETED',
+  ]) {
+    assert.ok(actions.includes(expectedAction), `Missing audit action: ${expectedAction}`);
+  }
+
+  // 14. Rate limiting on forgot-password endpoint
+  app.locals.rateLimitOverrides = { 'forgot-password': 1 };
+  const rlClient = new CookieClient(baseUrl);
+  const rlFirst = await rlClient.request('/api/auth/forgot-password', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '203.0.113.99' },
+    body: JSON.stringify({
+      fullName: 'Juan Dela Cruz',
+      email: 'juan.delacruz@paaralan.ph',
+      studentNumber: '2026-1001',
+      reason: 'Rate limit test 1',
+    }),
+  });
+  assert.equal(rlFirst.status, 201);
+  const rlBlocked = await rlClient.request('/api/auth/forgot-password', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '203.0.113.99' },
+    body: JSON.stringify({
+      fullName: 'Juan Dela Cruz',
+      email: 'juan.delacruz@paaralan.ph',
+      studentNumber: '2026-1001',
+      reason: 'Rate limit test 2',
+    }),
+  });
+  assert.equal(rlBlocked.status, 429);
 });

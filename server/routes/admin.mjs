@@ -3,8 +3,14 @@ import crypto from 'node:crypto';
 import { CONFIG } from '../config.mjs';
 import { requireAuth, requireRole } from '../middleware/auth.mjs';
 import { getStorageSummary } from '../utils/storage.mjs';
-import { hashPassword } from '../utils/crypto.mjs';
+import { hashPassword, hashToken } from '../utils/crypto.mjs';
 import { createStudentAccount } from '../utils/accounts.mjs';
+import {
+  buildResetApprovedEmail,
+  buildResetRejectedEmail,
+  resolveAppBaseUrl,
+  sendTransactionalEmail,
+} from '../utils/email.mjs';
 import { asyncHandler } from '../utils/http.mjs';
 import { logAudit } from '../db.mjs';
 
@@ -110,6 +116,11 @@ export function createAdminRouter(db) {
       );
       const authorizedCount = Number(authorizedRow?.cnt || 0);
 
+      const pendingResetRow = await db.get(
+        "SELECT COUNT(*) AS cnt FROM password_reset_requests WHERE status = 'pending'"
+      );
+      const pendingResetCount = Number(pendingResetRow?.cnt || 0);
+
       const toMB = (bytes) => Number((Number(bytes || 0) / (1024 * 1024)).toFixed(2));
 
       return res.json({
@@ -123,6 +134,7 @@ export function createAdminRouter(db) {
           totalActiveDocs: Number(docTotals?.active_docs || 0),
           totalTrashDocs: Number(docTotals?.trash_docs || 0),
           authorizedStudentCount: authorizedCount,
+          pendingResetCount,
         },
       });
     })
@@ -491,92 +503,382 @@ export function createAdminRouter(db) {
 
   router.get(
     '/password-resets',
-    asyncHandler(async (_req, res) => {
-      const rows = await db.all(
-        `SELECT r.*, u.full_name, u.student_number AS actual_student_number, u.course_section
+    asyncHandler(async (req, res) => {
+      const statusFilter = String(req.query.status || 'all').toLowerCase();
+
+      const allRows = await db.all(
+        `SELECT r.*, u.full_name AS user_full_name, u.student_number AS actual_student_number,
+                u.course_section AS actual_course_section
          FROM password_reset_requests r
          JOIN users u ON u.id = r.user_id
          ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END, r.created_at DESC
-         LIMIT 50`
+         LIMIT 100`
       );
 
-      return res.json({
-        requests: rows.map((r) => ({
-          id: r.id,
-          userId: r.user_id,
-          fullName: r.full_name,
-          email: r.email,
-          studentNumber: r.student_number || r.actual_student_number || '',
-          courseSection: r.course_section || '',
-          reason: r.reason,
-          status: r.status,
-          createdAt: r.created_at,
-          resolvedAt: r.resolved_at,
-        })),
-      });
+      const normalizedRows = allRows.map((r) => ({
+        ...r,
+        normalizedStatus:
+          r.status === 'resolved'
+            ? 'completed'
+            : r.status === 'dismissed'
+              ? 'rejected'
+              : r.status,
+      }));
+
+      const counts = {
+        all: normalizedRows.length,
+        pending: normalizedRows.filter((r) => r.normalizedStatus === 'pending').length,
+        approved: normalizedRows.filter((r) => r.normalizedStatus === 'approved').length,
+        rejected: normalizedRows.filter((r) => r.normalizedStatus === 'rejected').length,
+        completed: normalizedRows.filter((r) => r.normalizedStatus === 'completed').length,
+      };
+
+      const filteredRows =
+        statusFilter && statusFilter !== 'all'
+          ? normalizedRows.filter((r) => r.normalizedStatus === statusFilter)
+          : normalizedRows;
+
+      const requests = await Promise.all(
+        filteredRows.map(async (r) => {
+          const latestToken = await db.get(
+            `SELECT expires_at, used_at, created_at
+             FROM password_reset_tokens
+             WHERE request_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            r.id
+          );
+          const emailLogs = await db.all(
+            `SELECT id, email_type, status, provider, error_message, created_at, sent_at
+             FROM email_notifications
+             WHERE reset_request_id = ?
+             ORDER BY created_at DESC
+             LIMIT 5`,
+            r.id
+          );
+
+          return {
+            id: r.id,
+            userId: r.user_id,
+            referenceNumber:
+              r.reference_code || `TRR-${String(r.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+            fullName: r.full_name || r.user_full_name,
+            email: r.email,
+            studentNumber: r.student_number || r.actual_student_number || '',
+            courseSection: r.course_section || r.actual_course_section || '',
+            reason: r.reason,
+            status: r.normalizedStatus,
+            rejectionReason: r.rejection_reason || '',
+            createdAt: r.created_at,
+            updatedAt: r.updated_at || r.created_at,
+            approvedAt: r.approved_at || null,
+            rejectedAt: r.rejected_at || null,
+            completedAt: r.completed_at || null,
+            resolvedAt: r.resolved_at || null,
+            tokenExpiresAt: latestToken?.expires_at || null,
+            tokenUsedAt: latestToken?.used_at || null,
+            tokenExpired: Boolean(
+              latestToken &&
+                !latestToken.used_at &&
+                new Date(latestToken.expires_at).getTime() <= Date.now()
+            ),
+            emailDelivery: emailLogs[0]
+              ? {
+                  status: emailLogs[0].status,
+                  emailType: emailLogs[0].email_type,
+                  provider: emailLogs[0].provider,
+                  error: emailLogs[0].error_message || null,
+                  sentAt: emailLogs[0].sent_at || null,
+                }
+              : null,
+          };
+        })
+      );
+
+      return res.json({ requests, counts });
     })
   );
 
   router.post(
-    '/password-resets/:id/resolve',
+    '/password-resets/:id/approve',
     asyncHandler(async (req, res) => {
       const requestRow = await db.get(
-        "SELECT * FROM password_reset_requests WHERE id = ? AND status = 'pending'",
+        `SELECT r.*, u.full_name AS user_full_name, u.email AS user_email, u.status AS user_status
+         FROM password_reset_requests r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.id = ? AND r.status = 'pending'`,
         req.params.id
       );
 
       if (!requestRow) {
-        return res.status(404).json({ error: 'Hindi natagpuan ang nakabinbing kahilingan.' });
-      }
-
-      const { action = 'reset', newPassword = '' } = req.body || {};
-      const now = new Date().toISOString();
-
-      if (action === 'dismiss') {
-        await db.run(
-          `UPDATE password_reset_requests
-           SET status = 'dismissed', resolved_at = ?, resolved_by_admin_id = ?
-           WHERE id = ?`,
-          now,
-          req.user.id,
-          requestRow.id
-        );
-
-        return res.json({ message: 'Isinara ang kahilingan sa pag-reset ng password.' });
-      }
-
-      const cleanPassword = String(newPassword);
-      if (cleanPassword.length < 8) {
-        return res.status(400).json({
-          error: 'Ang pansamantalang password ay dapat may hindi bababa sa 8 karakter.',
+        return res.status(404).json({
+          error: 'Hindi natagpuan ang nakabinbing kahilingan o naaksyunan na ito.',
         });
       }
 
+      if (requestRow.user_status !== 'active') {
+        return res.status(400).json({
+          error: 'Hindi maaaring aprubahan dahil hindi aktibo o sinuspinde ang account ng mag-aaral.',
+        });
+      }
+
+      const nowMs = Date.now();
+      const now = new Date(nowMs).toISOString();
+      const expiresAt = new Date(nowMs + CONFIG.PASSWORD_RESET_TOKEN_TTL_MS).toISOString();
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = hashToken(rawToken);
+      const refNum =
+        requestRow.reference_code ||
+        `TRR-${String(requestRow.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+
+      // Invalidate any previous unused tokens for this user
       await db.run(
-        'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?',
-        hashPassword(cleanPassword),
+        'UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL',
         now,
         requestRow.user_id
       );
-      await db.run('DELETE FROM sessions WHERE user_id = ?', requestRow.user_id);
+
+      await db.run(
+        `INSERT INTO password_reset_tokens (id, request_id, user_id, token_hash, expires_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        crypto.randomUUID(),
+        requestRow.id,
+        requestRow.user_id,
+        tokenHash,
+        expiresAt,
+        now
+      );
+
       await db.run(
         `UPDATE password_reset_requests
-         SET status = 'resolved', resolved_at = ?, resolved_by_admin_id = ?
+         SET status = 'approved', approved_at = ?, approved_by_admin_id = ?, updated_at = ?, reference_code = ?
          WHERE id = ?`,
         now,
         req.user.id,
+        now,
+        refNum,
         requestRow.id
+      );
+
+      // Persist in-app notification immediately in DB so logged-out students see it upon login
+      await db.run(
+        `INSERT INTO student_notifications (
+          id, user_id, reset_request_id, type, title, message, is_read, created_at
+        ) VALUES (?, ?, ?, 'password_reset_approved', 'Naaprubahan ang Password Reset', ?, 0, ?)
+        ON CONFLICT DO NOTHING`,
+        crypto.randomUUID(),
+        requestRow.user_id,
+        requestRow.id,
+        'Your password reset request has been approved by the Admin. Please check your registered email for the password reset link.',
+        now
       );
 
       await logAudit(db, {
         actorId: req.user.id,
         targetUserId: requestRow.user_id,
-        action: 'ADMIN_RESET_STUDENT_PASSWORD',
-        details: `Nag-reset ng password para kay ${requestRow.email}`,
+        action: 'ADMIN_APPROVED_PASSWORD_RESET',
+        details: `Inaprubahan ang password reset request (${refNum}) para kay ${requestRow.user_email}`,
+      });
+
+      const resetUrl = `${resolveAppBaseUrl(req)}/reset-password?token=${encodeURIComponent(rawToken)}`;
+      const emailTpl = buildResetApprovedEmail({
+        fullName: requestRow.full_name || requestRow.user_full_name,
+        referenceNumber: refNum,
+        resetUrl,
+        expiresMinutes: 15,
+      });
+
+      const emailDelivery = await sendTransactionalEmail(db, {
+        userId: requestRow.user_id,
+        resetRequestId: requestRow.id,
+        recipientEmail: requestRow.user_email,
+        emailType: 'reset_approved',
+        ...emailTpl,
       });
 
       return res.json({
-        message: `Matagumpay na na-reset ang password para kay ${requestRow.email}.`,
+        message: emailDelivery.sent
+          ? `Naaprubahan ang kahilingan (${refNum}) at naipadala na ang 15-minutong reset link sa ${requestRow.user_email}.`
+          : `Naaprubahan ang kahilingan (${refNum}) at naitala ang in-app notification, ngunit NABIGO ang pagpapadala ng email: ${emailDelivery.error}`,
+        referenceNumber: refNum,
+        expiresAt,
+        emailDelivery,
+      });
+    })
+  );
+
+  router.post(
+    '/password-resets/:id/reject',
+    asyncHandler(async (req, res) => {
+      const cleanReason = String(req.body?.reason || req.body?.rejectionReason || '')
+        .trim()
+        .slice(0, 500);
+      if (cleanReason.length < 3) {
+        return res.status(400).json({
+          error: 'Kinakailangang maglagay ng dahilan sa pagtanggi ng kahilingan (min. 3 karakter).',
+        });
+      }
+
+      const requestRow = await db.get(
+        `SELECT r.*, u.full_name AS user_full_name, u.email AS user_email
+         FROM password_reset_requests r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.id = ? AND r.status = 'pending'`,
+        req.params.id
+      );
+
+      if (!requestRow) {
+        return res.status(404).json({
+          error: 'Hindi natagpuan ang nakabinbing kahilingan o naaksyunan na ito.',
+        });
+      }
+
+      const now = new Date().toISOString();
+      const refNum =
+        requestRow.reference_code ||
+        `TRR-${String(requestRow.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+
+      await db.run(
+        `UPDATE password_reset_requests
+         SET status = 'rejected', rejection_reason = ?, rejected_at = ?, rejected_by_admin_id = ?,
+             resolved_at = ?, resolved_by_admin_id = ?, updated_at = ?, reference_code = ?
+         WHERE id = ?`,
+        cleanReason,
+        now,
+        req.user.id,
+        now,
+        req.user.id,
+        now,
+        refNum,
+        requestRow.id
+      );
+
+      await db.run(
+        `INSERT INTO student_notifications (
+          id, user_id, reset_request_id, type, title, message, is_read, created_at
+        ) VALUES (?, ?, ?, 'password_reset_rejected', 'Tinanggihan ang Password Reset', ?, 0, ?)
+        ON CONFLICT DO NOTHING`,
+        crypto.randomUUID(),
+        requestRow.user_id,
+        requestRow.id,
+        `Your password reset request has been rejected. Reason: ${cleanReason}.`,
+        now
+      );
+
+      await logAudit(db, {
+        actorId: req.user.id,
+        targetUserId: requestRow.user_id,
+        action: 'ADMIN_REJECTED_PASSWORD_RESET',
+        details: `Tinanggihan ang kahilingan (${refNum}) ni ${requestRow.user_email}: ${cleanReason}`,
+      });
+
+      const statusUrl = `${resolveAppBaseUrl(req)}/reset-status`;
+      const emailTpl = buildResetRejectedEmail({
+        fullName: requestRow.full_name || requestRow.user_full_name,
+        referenceNumber: refNum,
+        reason: cleanReason,
+        statusUrl,
+      });
+
+      const emailDelivery = await sendTransactionalEmail(db, {
+        userId: requestRow.user_id,
+        resetRequestId: requestRow.id,
+        recipientEmail: requestRow.user_email,
+        emailType: 'reset_rejected',
+        ...emailTpl,
+      });
+
+      return res.json({
+        message: emailDelivery.sent
+          ? `Tinanggihan ang kahilingan (${refNum}) at naipadala na ang abiso sa ${requestRow.user_email}.`
+          : `Tinanggihan ang kahilingan (${refNum}) at naitala ang in-app notification, ngunit NABIGO ang pagpapadala ng email: ${emailDelivery.error}`,
+        referenceNumber: refNum,
+        emailDelivery,
+      });
+    })
+  );
+
+  router.post(
+    '/password-resets/:id/resend-email',
+    asyncHandler(async (req, res) => {
+      const requestRow = await db.get(
+        `SELECT r.*, u.full_name AS user_full_name, u.email AS user_email
+         FROM password_reset_requests r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.id = ? AND r.status IN ('approved', 'rejected')`,
+        req.params.id
+      );
+
+      if (!requestRow) {
+        return res.status(404).json({
+          error: 'Walang nahanap na naaprubahan o tinanggihang kahilingan upang padalhan muli ng email.',
+        });
+      }
+
+      const now = new Date().toISOString();
+      const refNum =
+        requestRow.reference_code ||
+        `TRR-${String(requestRow.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+
+      let emailDelivery;
+      if (requestRow.status === 'approved') {
+        const expiresAt = new Date(Date.now() + CONFIG.PASSWORD_RESET_TOKEN_TTL_MS).toISOString();
+        const rawToken = crypto.randomBytes(32).toString('hex');
+        await db.run(
+          'UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL',
+          now,
+          requestRow.user_id
+        );
+        await db.run(
+          `INSERT INTO password_reset_tokens (id, request_id, user_id, token_hash, expires_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          crypto.randomUUID(),
+          requestRow.id,
+          requestRow.user_id,
+          hashToken(rawToken),
+          expiresAt,
+          now
+        );
+        const resetUrl = `${resolveAppBaseUrl(req)}/reset-password?token=${encodeURIComponent(rawToken)}`;
+        emailDelivery = await sendTransactionalEmail(db, {
+          userId: requestRow.user_id,
+          resetRequestId: requestRow.id,
+          recipientEmail: requestRow.user_email,
+          emailType: 'reset_approved',
+          ...buildResetApprovedEmail({
+            fullName: requestRow.full_name || requestRow.user_full_name,
+            referenceNumber: refNum,
+            resetUrl,
+            expiresMinutes: 15,
+          }),
+        });
+      } else {
+        emailDelivery = await sendTransactionalEmail(db, {
+          userId: requestRow.user_id,
+          resetRequestId: requestRow.id,
+          recipientEmail: requestRow.user_email,
+          emailType: 'reset_rejected',
+          ...buildResetRejectedEmail({
+            fullName: requestRow.full_name || requestRow.user_full_name,
+            referenceNumber: refNum,
+            reason: requestRow.rejection_reason || 'Tinanggihan ng Tagapangasiwa.',
+            statusUrl: `${resolveAppBaseUrl(req)}/reset-status`,
+          }),
+        });
+      }
+
+      await logAudit(db, {
+        actorId: req.user.id,
+        targetUserId: requestRow.user_id,
+        action: 'ADMIN_RESENT_PASSWORD_RESET_EMAIL',
+        details: `Sinubukang ipadala muli ang email (${refNum}): ${emailDelivery.sent ? 'Naipadala' : `Nabigo - ${emailDelivery.error}`}`,
+      });
+
+      return res.json({
+        message: emailDelivery.sent
+          ? `Naipadala muli ang email kay ${requestRow.user_email}.`
+          : `Nabigo pa rin ang pagpapadala ng email: ${emailDelivery.error}`,
+        emailDelivery,
       });
     })
   );

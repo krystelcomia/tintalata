@@ -15,6 +15,8 @@ function normalizePath(pathname: string): string {
 function getAuthModeFromPath(pathname: string): AuthRouteMode {
   if (pathname === '/register') return 'register';
   if (pathname === '/forgot-password') return 'forgot-password';
+  if (pathname === '/reset-status') return 'reset-status';
+  if (pathname === '/reset-password') return 'reset-password';
   return 'login';
 }
 
@@ -112,7 +114,11 @@ export function App() {
     if (bootstrapping) return;
 
     const isAuthRoute =
-      pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
+      pathname === '/login' ||
+      pathname === '/register' ||
+      pathname === '/forgot-password' ||
+      pathname === '/reset-status' ||
+      pathname === '/reset-password';
     const isAdminRoute = pathname.startsWith('/admin');
     const isStudentRoute =
       pathname.startsWith('/dashboard') ||
@@ -189,7 +195,7 @@ export function App() {
 
   return (
     <>
-      {!user || !storage ? (
+      {pathname === '/reset-password' || !user || !storage ? (
         <AuthPage
           mode={getAuthModeFromPath(pathname)}
           onNavigateMode={(next) => navigate(`/${next}`)}

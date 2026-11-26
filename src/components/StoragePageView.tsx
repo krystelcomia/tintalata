@@ -14,6 +14,7 @@ interface LargestDoc {
 interface StoragePageViewProps {
   storage: StorageSummary;
   supportStudentId?: string;
+  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onBackToProfile?: () => void;
   onOpenDocument: (docId: string) => void;
@@ -24,6 +25,7 @@ interface StoragePageViewProps {
 export function StoragePageView({
   storage,
   supportStudentId,
+  headerActions,
   onOpenSidebar,
   onBackToProfile,
   onOpenDocument,
@@ -90,6 +92,7 @@ export function StoragePageView({
         </div>
 
         <div className="flex items-center gap-2">
+          {headerActions}
           {onBackToProfile && (
             <button
               type="button"

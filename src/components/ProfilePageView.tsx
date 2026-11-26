@@ -7,6 +7,7 @@ import { PasswordInput } from './PasswordInput';
 interface ProfilePageViewProps {
   user: User;
   storage: StorageSummary;
+  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onOpenStorage: () => void;
   onUpdated: (user: User, message: string) => void;
@@ -24,6 +25,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 export function ProfilePageView({
   user,
   storage,
+  headerActions,
   onOpenSidebar,
   onOpenStorage,
   onUpdated,
@@ -97,14 +99,17 @@ export function ProfilePageView({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void onLogout()}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
-        >
-          <LogOut className="h-4 w-4" />
-          Mag-log out
-        </button>
+        <div className="flex items-center gap-2">
+          {headerActions}
+          <button
+            type="button"
+            onClick={() => void onLogout()}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+          >
+            <LogOut className="h-4 w-4" />
+            Mag-log out
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-5 sm:p-6">

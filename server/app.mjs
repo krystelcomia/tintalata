@@ -10,6 +10,7 @@ import { createTrashRouter } from './routes/trash.mjs';
 import { createStorageRouter } from './routes/storage.mjs';
 import { createPrivacyRouter } from './routes/privacy.mjs';
 import { createAdminRouter } from './routes/admin.mjs';
+import { createNotificationsRouter } from './routes/notifications.mjs';
 
 export function createApp(db, { serveStatic = true } = {}) {
   const app = express();
@@ -53,6 +54,7 @@ export function createApp(db, { serveStatic = true } = {}) {
   app.use('/api/storage', createStorageRouter(db));
   app.use('/api/privacy', createPrivacyRouter(db));
   app.use('/api/admin', createAdminRouter(db));
+  app.use('/api/notifications', createNotificationsRouter(db));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Hindi natagpuan ang hinihiling na API endpoint.' });

@@ -1,9 +1,11 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.mjs';
-import { hashPassword, verifyPassword, generateSessionToken } from '../utils/crypto.mjs';
+import { hashPassword, hashToken, verifyPassword, generateSessionToken } from '../utils/crypto.mjs';
 import { getStorageSummary } from '../utils/storage.mjs';
 import { createStudentAccount, EMAIL_RE } from '../utils/accounts.mjs';
+import { createRateLimiter } from '../utils/rateLimit.mjs';
+import { buildPasswordChangedEmail, sendTransactionalEmail } from '../utils/email.mjs';
 import { asyncHandler } from '../utils/http.mjs';
 import {
   clearSessionCookie,
@@ -48,6 +50,28 @@ function sanitizeUserPayload(row) {
 
 export function createAuthRouter(db) {
   const router = express.Router();
+
+  const forgotPasswordLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    keyPrefix: 'forgot-password',
+    message:
+      'Masyadong maraming kahilingan sa pag-reset ng password. Pakihintay ng ilang minuto bago subukan muli.',
+  });
+
+  const statusTrackingLimiter = createRateLimiter({
+    windowMs: 10 * 60 * 1000,
+    max: 30,
+    keyPrefix: 'reset-status',
+    message: 'Masyadong maraming pagsubok sa pagtingin ng status. Pakihintay ng ilang minuto.',
+  });
+
+  const resetTokenLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 15,
+    keyPrefix: 'reset-token',
+    message: 'Masyadong maraming pagtatangka sa pag-reset ng password. Pakihintay ng ilang minuto.',
+  });
 
   router.post(
     '/register',
@@ -195,47 +219,407 @@ export function createAuthRouter(db) {
 
   router.post(
     '/forgot-password',
+    forgotPasswordLimiter,
     asyncHandler(async (req, res) => {
-      const { email = '', studentNumber = '', reason = '' } = req.body || {};
+      const { fullName = '', email = '', studentNumber = '', reason = '' } = req.body || {};
+      const cleanFullName = String(fullName).trim().slice(0, 120);
       const cleanEmail = String(email).trim().toLowerCase();
-      const cleanStudentNumber = String(studentNumber).trim();
-      const cleanReason = String(reason).trim().slice(0, 240);
+      const cleanStudentNumber = String(studentNumber).trim().slice(0, 40);
+      const cleanReason = String(reason).trim().slice(0, 400);
 
+      if (cleanFullName.length < 2) {
+        return res.status(400).json({
+          error: 'Mangyaring ilagay ang iyong buong pangalan.',
+        });
+      }
       if (!EMAIL_RE.test(cleanEmail)) {
         return res.status(400).json({
-          error: 'Mangyaring ilagay ang wastong email address ng iyong account.',
+          error: 'Mangyaring ilagay ang wastong nakarehistrong email address.',
+        });
+      }
+      if (!cleanStudentNumber) {
+        return res.status(400).json({
+          error: 'Mangyaring ilagay ang iyong Numero ng Mag-aaral (Student ID).',
+        });
+      }
+      if (cleanReason.length < 3) {
+        return res.status(400).json({
+          error: 'Mangyaring ilagay ang dahilan ng paghiling ng pag-reset ng password.',
         });
       }
 
       const user = await db.get(
-        "SELECT id, email, student_number FROM users WHERE LOWER(email) = ? AND role = 'student'",
+        "SELECT id, email, full_name, student_number, course_section, status FROM users WHERE LOWER(email) = ? AND LOWER(role) = 'student'",
         cleanEmail
       );
 
-      if (user) {
-        const now = new Date().toISOString();
-        await db.run(
-          `INSERT INTO password_reset_requests (id, user_id, email, student_number, reason, status, created_at)
-           VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-          crypto.randomUUID(),
-          user.id,
-          user.email,
-          cleanStudentNumber || user.student_number || '',
-          cleanReason || 'Kahilingan sa pag-reset ng nakalimutang password',
-          now
-        );
-
-        await logAudit(db, {
-          actorId: user.id,
-          targetUserId: user.id,
-          action: 'STUDENT_PASSWORD_RESET_REQUESTED',
-          details: `Nagpadala ng kahilingan sa pag-reset ng password (${user.email})`,
+      if (!user) {
+        return res.status(400).json({
+          error: 'Walang nahanap na account ng mag-aaral para sa inilagay na mga detalye.',
         });
       }
 
+      if (user.status !== 'active') {
+        return res.status(403).json({
+          error: 'Ang account na ito ay kasalukuyang sinuspinde o hindi aktibo. Makipag-ugnayan sa Admin.',
+        });
+      }
+
+      const nameMatches = cleanFullName.toLowerCase() === String(user.full_name || '').trim().toLowerCase();
+      const savedStudentNum = String(user.student_number || '').trim().toLowerCase();
+      const idMatches = !savedStudentNum || cleanStudentNumber.toLowerCase() === savedStudentNum;
+
+      if (!nameMatches || !idMatches) {
+        await logAudit(db, {
+          actorId: user.id,
+          targetUserId: user.id,
+          action: 'STUDENT_PASSWORD_RESET_VERIFICATION_FAILED',
+          details: `Hindi tugma ang beripikasyon para sa password reset request (${user.email})`,
+        });
+        return res.status(400).json({
+          error: 'Hindi tumugma ang iyong Buong Pangalan o Student ID sa nakarehistrong account.',
+        });
+      }
+
+      // Check for active pending or non-expired approved requests to prevent duplicates
+      const activeExisting = await db.get(
+        `SELECT id, status, reference_code
+         FROM password_reset_requests
+         WHERE user_id = ? AND status IN ('pending', 'approved')
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        user.id
+      );
+
+      if (activeExisting) {
+        if (activeExisting.status === 'pending') {
+          return res.status(409).json({
+            error: `Mayroon ka nang aktibong kahilingan (${activeExisting.reference_code}) na naghihintay ng pag-apruba ng Admin. Hindi pinapayagan ang dobleng aktibong kahilingan.`,
+          });
+        }
+        const activeToken = await db.get(
+          `SELECT id, expires_at
+           FROM password_reset_tokens
+           WHERE request_id = ? AND used_at IS NULL
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          activeExisting.id
+        );
+        if (activeToken && new Date(activeToken.expires_at).getTime() > Date.now()) {
+          return res.status(409).json({
+            error: `Naaprubahan na ang iyong aktibong kahilingan (${activeExisting.reference_code}) at may bisa pa ang reset link. Pakitingnan ang iyong email.`,
+          });
+        }
+      }
+
+      const now = new Date().toISOString();
+      const requestId = crypto.randomUUID();
+      const referenceNumber = `TRR-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+      await db.run(
+        `INSERT INTO password_reset_requests (
+          id, user_id, reference_code, full_name, email, student_number, course_section,
+          reason, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        requestId,
+        user.id,
+        referenceNumber,
+        cleanFullName,
+        user.email,
+        cleanStudentNumber,
+        user.course_section || '',
+        cleanReason,
+        now,
+        now
+      );
+
+      await logAudit(db, {
+        actorId: user.id,
+        targetUserId: user.id,
+        action: 'STUDENT_PASSWORD_RESET_REQUESTED',
+        details: `Nagsumite ng password reset request (${referenceNumber}) para kay ${user.email}`,
+      });
+
+      return res.status(201).json({
+        message:
+          'Matagumpay na naipadala ang iyong kahilingan sa pag-reset ng password at naghihintay na ito ng pag-apruba ng Admin.',
+        referenceNumber,
+        status: 'pending',
+        submittedAt: now,
+      });
+    })
+  );
+
+  router.post(
+    '/reset-status',
+    statusTrackingLimiter,
+    asyncHandler(async (req, res) => {
+      const { email = '', referenceNumber = '' } = req.body || {};
+      const cleanEmail = String(email).trim().toLowerCase();
+      const cleanRef = String(referenceNumber).trim().toUpperCase();
+
+      if (!EMAIL_RE.test(cleanEmail) || !cleanRef) {
+        return res.status(400).json({
+          error: 'Mangyaring ilagay ang iyong nakarehistrong email address at Reference Number.',
+        });
+      }
+
+      const row = await db.get(
+        `SELECT id, reference_code, status, rejection_reason,
+                created_at, approved_at, rejected_at, completed_at, updated_at
+         FROM password_reset_requests
+         WHERE LOWER(email) = ? AND UPPER(TRIM(reference_code)) = ?
+         LIMIT 1`,
+        cleanEmail,
+        cleanRef
+      );
+
+      if (!row) {
+        return res.status(404).json({
+          error: 'Walang nahanap na kahilingan para sa email at reference number na iyan.',
+        });
+      }
+
+      const normalizedStatus =
+        row.status === 'resolved'
+          ? 'completed'
+          : row.status === 'dismissed'
+            ? 'rejected'
+            : row.status;
+
+      let tokenExpired = false;
+      let tokenExpiresAt = null;
+      if (normalizedStatus === 'approved') {
+        const tokenRow = await db.get(
+          `SELECT expires_at, used_at
+           FROM password_reset_tokens
+           WHERE request_id = ?
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          row.id
+        );
+        if (tokenRow) {
+          tokenExpiresAt = tokenRow.expires_at;
+          tokenExpired = !tokenRow.used_at && new Date(tokenRow.expires_at).getTime() <= Date.now();
+        }
+      }
+
+      const latestEmail = await db.get(
+        `SELECT status
+         FROM email_notifications
+         WHERE reset_request_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        row.id
+      );
+
+      const statusMessages = {
+        pending: 'Your request is waiting for Admin review.',
+        approved: 'Your request has been approved. Please check your registered email for the reset link.',
+        rejected: 'Your request has been rejected. Check your email for the reason.',
+        completed: 'Your password has been successfully changed.',
+      };
+
+      return res.json({
+        referenceNumber: row.reference_code,
+        status: normalizedStatus,
+        statusMessage: statusMessages[normalizedStatus] || statusMessages.pending,
+        submittedAt: row.created_at,
+        updatedAt: row.updated_at || row.created_at,
+        approvedAt: row.approved_at || null,
+        rejectedAt: row.rejected_at || null,
+        completedAt: row.completed_at || null,
+        rejectionReason: normalizedStatus === 'rejected' ? row.rejection_reason || null : null,
+        tokenExpiresAt,
+        tokenExpired,
+        emailDeliveryStatus: latestEmail?.status || null,
+      });
+    })
+  );
+
+  router.get(
+    '/reset-password/validate',
+    resetTokenLimiter,
+    asyncHandler(async (req, res) => {
+      const rawToken = String(req.query.token || '').trim();
+      if (!rawToken || rawToken.length < 32) {
+        return res.status(400).json({ error: 'Hindi wasto o kulang ang password reset token.' });
+      }
+
+      const tokenHash = hashToken(rawToken);
+      const tokenRow = await db.get(
+        `SELECT t.id, t.expires_at, t.used_at, t.user_id,
+                r.id AS request_id, r.reference_code, r.status AS request_status,
+                u.full_name, u.email, u.status AS user_status
+         FROM password_reset_tokens t
+         JOIN password_reset_requests r ON r.id = t.request_id
+         JOIN users u ON u.id = t.user_id
+         WHERE t.token_hash = ?
+         LIMIT 1`,
+        tokenHash
+      );
+
+      if (!tokenRow) {
+        return res.status(404).json({
+          error: 'Hindi wasto o hindi umiiral ang link sa pag-reset ng password.',
+        });
+      }
+      if (tokenRow.used_at || tokenRow.request_status === 'completed') {
+        return res.status(410).json({
+          error: 'Nagamit na ang one-time reset link na ito. Gumawa ng bagong kahilingan kung kinakailangan.',
+        });
+      }
+      if (tokenRow.request_status !== 'approved') {
+        return res.status(403).json({
+          error: 'Hindi na aktibo o hindi aprubado ang kahilingang ito.',
+        });
+      }
+      if (new Date(tokenRow.expires_at).getTime() <= Date.now()) {
+        return res.status(410).json({
+          error: 'Nag-expire na ang reset link (lampas na sa 15 minuto). Magpadala ng panibagong kahilingan sa Admin.',
+        });
+      }
+      if (tokenRow.user_status !== 'active') {
+        return res.status(403).json({
+          error: 'Ang account na ito ay kasalukuyang hindi aktibo o sinuspinde.',
+        });
+      }
+
+      const emailParts = String(tokenRow.email).split('@');
+      const maskedEmail =
+        emailParts.length === 2
+          ? `${emailParts[0].slice(0, 2)}***@${emailParts[1]}`
+          : tokenRow.email;
+
+      return res.json({
+        valid: true,
+        referenceNumber: tokenRow.reference_code,
+        fullName: tokenRow.full_name,
+        emailMasked: maskedEmail,
+        expiresAt: tokenRow.expires_at,
+      });
+    })
+  );
+
+  router.post(
+    '/reset-password',
+    resetTokenLimiter,
+    asyncHandler(async (req, res) => {
+      const { token = '', newPassword = '', confirmPassword = '' } = req.body || {};
+      const rawToken = String(token).trim();
+      const rawPass = String(newPassword);
+      const rawConfirm = String(confirmPassword);
+
+      if (!rawToken || rawToken.length < 32) {
+        return res.status(400).json({ error: 'Hindi wastong reset token.' });
+      }
+      if (rawPass.length < 8 || !/[a-zA-Z]/.test(rawPass) || !/\d/.test(rawPass)) {
+        return res.status(400).json({
+          error:
+            'Ang bagong password ay dapat may hindi bababa sa 8 karakter at may pinagsamang titik at numero.',
+        });
+      }
+      if (rawPass !== rawConfirm) {
+        return res.status(400).json({
+          error: 'Hindi magkatugma ang bagong password at kumpirmasyon.',
+        });
+      }
+
+      const tokenHash = hashToken(rawToken);
+      const tokenRow = await db.get(
+        `SELECT t.id, t.expires_at, t.used_at, t.user_id,
+                r.id AS request_id, r.reference_code, r.status AS request_status,
+                u.full_name, u.email, u.status AS user_status
+         FROM password_reset_tokens t
+         JOIN password_reset_requests r ON r.id = t.request_id
+         JOIN users u ON u.id = t.user_id
+         WHERE t.token_hash = ?
+         LIMIT 1`,
+        tokenHash
+      );
+
+      if (!tokenRow) {
+        return res.status(404).json({ error: 'Hindi wastong link sa pag-reset ng password.' });
+      }
+      if (tokenRow.used_at || tokenRow.request_status === 'completed') {
+        return res.status(410).json({ error: 'Nagamit na ang reset token na ito.' });
+      }
+      if (tokenRow.request_status !== 'approved') {
+        return res.status(403).json({ error: 'Walang aktibong pag-apruba para sa token na ito.' });
+      }
+      if (new Date(tokenRow.expires_at).getTime() <= Date.now()) {
+        return res.status(410).json({
+          error: 'Nag-expire na ang reset link (15 minuto). Mangyaring humiling muli.',
+        });
+      }
+      if (tokenRow.user_status !== 'active') {
+        return res.status(403).json({ error: 'Hindi aktibo o sinuspinde ang account na ito.' });
+      }
+
+      const now = new Date().toISOString();
+      const claim = await db.run(
+        'UPDATE password_reset_tokens SET used_at = ? WHERE id = ? AND used_at IS NULL',
+        now,
+        tokenRow.id
+      );
+      if (claim.changes === 0) {
+        return res.status(409).json({ error: 'Nagamit na ang reset token na ito.' });
+      }
+
+      await db.run(
+        'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?',
+        hashPassword(rawPass),
+        now,
+        tokenRow.user_id
+      );
+      await db.run('DELETE FROM sessions WHERE user_id = ?', tokenRow.user_id);
+
+      await db.run(
+        `UPDATE password_reset_requests
+         SET status = 'completed', completed_at = ?, resolved_at = ?, updated_at = ?
+         WHERE id = ?`,
+        now,
+        now,
+        now,
+        tokenRow.request_id
+      );
+
+      await db.run(
+        `INSERT INTO student_notifications (
+          id, user_id, reset_request_id, type, title, message, is_read, created_at
+        ) VALUES (?, ?, ?, 'password_changed', 'Napalitan na ang Password', ?, 0, ?)
+        ON CONFLICT DO NOTHING`,
+        crypto.randomUUID(),
+        tokenRow.user_id,
+        tokenRow.request_id,
+        'Your password has been successfully changed.',
+        now
+      );
+
+      await logAudit(db, {
+        actorId: tokenRow.user_id,
+        targetUserId: tokenRow.user_id,
+        action: 'STUDENT_PASSWORD_RESET_COMPLETED',
+        details: `Matagumpay na napalitan ang password gamit ang reset link (${tokenRow.reference_code})`,
+      });
+
+      const emailTpl = buildPasswordChangedEmail({
+        fullName: tokenRow.full_name,
+        referenceNumber: tokenRow.reference_code,
+      });
+      const emailDelivery = await sendTransactionalEmail(db, {
+        userId: tokenRow.user_id,
+        resetRequestId: tokenRow.request_id,
+        recipientEmail: tokenRow.email,
+        emailType: 'password_changed',
+        ...emailTpl,
+      });
+
       return res.json({
         message:
-          'Kung nakarehistro ang email sa sistema, naipadala na ang iyong kahilingan sa Tagapangasiwa para sa pag-reset ng password.',
+          'Matagumpay na napalitan ang iyong password! Maaari ka nang mag-log in gamit ang iyong bagong password.',
+        referenceNumber: tokenRow.reference_code,
+        emailDelivery,
       });
     })
   );

@@ -49,6 +49,7 @@ import { PrivacyPageView } from './PrivacyPageView';
 import { ProfilePageView } from './ProfilePageView';
 import { TintalataLogo } from './TintalataLogo';
 import { ShareModal } from './ShareModal';
+import { NotificationBell } from './NotificationBell';
 
 interface StudentWorkspaceProps {
   currentUser: User;
@@ -1304,6 +1305,7 @@ export function StudentWorkspace({
             documents={trashDocs}
             loading={loadingTrash}
             readOnly={readOnly}
+            headerActions={!supportContext ? <NotificationBell onNotify={onNotify} /> : undefined}
             onOpenSidebar={() => setSidebarOpen(true)}
             onRestoreFolder={handleRestoreFolder}
             onRestoreDocument={handleRestoreDoc}
@@ -1315,6 +1317,7 @@ export function StudentWorkspace({
           <StoragePageView
             storage={storage}
             supportStudentId={supportStudentId}
+            headerActions={!supportContext ? <NotificationBell onNotify={onNotify} /> : undefined}
             onOpenSidebar={() => setSidebarOpen(true)}
             onBackToProfile={!supportContext ? () => setNavSection('profile') : undefined}
             onOpenDocument={(id) => void openDocumentById(id)}
@@ -1326,6 +1329,7 @@ export function StudentWorkspace({
           />
         ) : navSection === 'privacy' && !supportContext ? (
           <PrivacyPageView
+            headerActions={<NotificationBell onNotify={onNotify} />}
             onOpenSidebar={() => setSidebarOpen(true)}
             onNotify={onNotify}
             onPendingCountChange={setPendingGrants}
@@ -1334,6 +1338,7 @@ export function StudentWorkspace({
           <ProfilePageView
             user={currentUser}
             storage={storage}
+            headerActions={<NotificationBell onNotify={onNotify} />}
             onOpenSidebar={() => setSidebarOpen(true)}
             onOpenStorage={() => setNavSection('storage')}
             onUpdated={(updated, msg) => {
@@ -1439,6 +1444,8 @@ export function StudentWorkspace({
                     Bagong Dokumento
                   </button>
                 )}
+
+                {!supportContext && <NotificationBell onNotify={onNotify} />}
               </div>
             </header>
 

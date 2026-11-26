@@ -216,6 +216,7 @@ export interface AdminOverview {
   totalActiveDocs: number;
   totalTrashDocs: number;
   authorizedStudentCount: number;
+  pendingResetCount?: number;
 }
 
 export interface AdminStudent {
@@ -249,17 +250,54 @@ export interface AdminStudent {
   };
 }
 
+export type PasswordResetStatus = 'pending' | 'approved' | 'rejected' | 'completed';
+
 export interface PasswordResetRequest {
   id: string;
   userId: string;
+  referenceNumber: string;
   fullName: string;
   email: string;
   studentNumber: string;
   courseSection: string;
   reason: string;
-  status: 'pending' | 'resolved' | 'dismissed';
+  status: PasswordResetStatus;
+  rejectionReason?: string;
   createdAt: string;
+  updatedAt?: string;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  completedAt?: string | null;
   resolvedAt: string | null;
+  tokenExpiresAt?: string | null;
+  tokenUsedAt?: string | null;
+  tokenExpired?: boolean;
+  emailDelivery?: {
+    status: 'pending' | 'sent' | 'failed';
+    emailType: string;
+    provider?: string;
+    error?: string | null;
+    sentAt?: string | null;
+  } | null;
+}
+
+export interface PasswordResetCounts {
+  all: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  completed: number;
+}
+
+export interface StudentNotification {
+  id: string;
+  resetRequestId: string | null;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
 }
 
 export interface ToastMessage {

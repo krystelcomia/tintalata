@@ -11,14 +11,57 @@ import {
   ChevronDown,
   ChevronUp,
   CheckCircle2,
+  Search,
+  Copy,
+  Check,
+  AlertCircle,
+  Clock,
+  ShieldCheck,
 } from 'lucide-react';
 import { apiRequest } from '../utils/api';
-import type { StorageSummary, User } from '../types';
+import type { PasswordResetStatus, StorageSummary, User } from '../types';
 import { TintalataLogo } from './TintalataLogo';
 import { PasswordInput } from './PasswordInput';
 import authBg from '../assets/auth-bg.jpg';
 
-export type AuthRouteMode = 'login' | 'register' | 'forgot-password';
+export type AuthRouteMode =
+  | 'login'
+  | 'register'
+  | 'forgot-password'
+  | 'reset-status'
+  | 'reset-password';
+
+interface ResetStatusResult {
+  referenceNumber: string;
+  status: PasswordResetStatus;
+  statusMessage: string;
+  submittedAt: string;
+  updatedAt: string;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  completedAt: string | null;
+  rejectionReason: string | null;
+  tokenExpiresAt: string | null;
+  tokenExpired: boolean;
+  emailDeliveryStatus: string | null;
+}
+
+interface ResetTokenInfo {
+  referenceNumber: string;
+  fullName: string;
+  emailMasked: string;
+  expiresAt: string;
+}
+
+function formatDateTimePH(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-PH', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
 
 interface AuthPageProps {
   mode: AuthRouteMode;
@@ -48,9 +91,86 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   const [confirmPassword, setConfirmPassword] = useState('');
 
   // Forgot password fields
+  const [forgotFullName, setForgotFullName] = useState('');
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStudentNumber, setForgotStudentNumber] = useState('');
   const [forgotReason, setForgotReason] = useState('');
+  const [forgotReference, setForgotReference] = useState('');
+  const [copiedRef, setCopiedRef] = useState(false);
+
+  // Public request status tracking fields
+  const [statusEmail, setStatusEmail] = useState('');
+  const [statusRef, setStatusRef] = useState('');
+  const [statusResult, setStatusResult] = useState<ResetStatusResult | null>(null);
+
+  // Secure password reset form fields (via one-time token link)
+  const [resetToken, setResetToken] = useState(() =>
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : ''
+  );
+  const [tokenValidating, setTokenValidating] = useState(false);
+  const [tokenInfo, setTokenInfo] = useState<ResetTokenInfo | null>(null);
+  const [tokenError, setTokenError] = useState('');
+  const [newResetPassword, setNewResetPassword] = useState('');
+  const [confirmResetPassword, setConfirmResetPassword] = useState('');
+  const [resetCompleted, setResetCompleted] = useState(false);
+
+  useEffect(() => {
+    setError('');
+    setSuccessInfo('');
+    if (mode === 'reset-password') {
+      const tokenFromUrl =
+        typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : '';
+      const activeToken = tokenFromUrl || resetToken;
+      if (tokenFromUrl && tokenFromUrl !== resetToken) {
+        setResetToken(tokenFromUrl);
+      }
+      setResetCompleted(false);
+      setNewResetPassword('');
+      setConfirmResetPassword('');
+
+      if (!activeToken) {
+        setTokenValidating(false);
+        setTokenInfo(null);
+        setTokenError(
+          'Walang reset token sa link na ito. Mangyaring buksan ang kumpletong link mula sa email ng Admin.'
+        );
+        return;
+      }
+
+      let cancelled = false;
+      setTokenValidating(true);
+      setTokenError('');
+      setTokenInfo(null);
+
+      apiRequest<ResetTokenInfo & { valid: boolean }>(
+        `/api/auth/reset-password/validate?token=${encodeURIComponent(activeToken)}`
+      )
+        .then((res) => {
+          if (cancelled) return;
+          setTokenInfo({
+            referenceNumber: res.referenceNumber,
+            fullName: res.fullName,
+            emailMasked: res.emailMasked,
+            expiresAt: res.expiresAt,
+          });
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          const msg =
+            err instanceof Error
+              ? err.message
+              : 'Hindi valid o nag-expire na ang link sa pag-reset ng password.';
+          setTokenError(msg);
+        })
+        .finally(() => {
+          if (!cancelled) setTokenValidating(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [mode]);
 
   useEffect(() => {
     setError('');
@@ -147,23 +267,133 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     e.preventDefault();
     setError('');
     setSuccessInfo('');
+    setForgotReference('');
+    setCopiedRef(false);
+
+    if (!forgotFullName.trim() || !forgotEmail.trim() || !forgotStudentNumber.trim() || !forgotReason.trim()) {
+      const msg = 'Pakipunan ang buong pangalan, email address, Student ID, at dahilan ng paghingi ng reset.';
+      setError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await apiRequest<{ message: string }>('/api/auth/forgot-password', {
+      const submittedEmail = forgotEmail.trim();
+      const res = await apiRequest<{
+        message: string;
+        referenceNumber: string;
+        status: PasswordResetStatus;
+        submittedAt: string;
+      }>('/api/auth/forgot-password', {
         method: 'POST',
         body: JSON.stringify({
-          email: forgotEmail,
-          studentNumber: forgotStudentNumber,
-          reason: forgotReason,
+          fullName: forgotFullName.trim(),
+          email: submittedEmail,
+          studentNumber: forgotStudentNumber.trim(),
+          reason: forgotReason.trim(),
         }),
       });
       setSuccessInfo(res.message);
+      setForgotReference(res.referenceNumber);
+      setStatusEmail(submittedEmail);
+      setStatusRef(res.referenceNumber);
       onNotify('success', res.message);
+      setForgotFullName('');
       setForgotEmail('');
       setForgotStudentNumber('');
       setForgotReason('');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Hindi naipadala ang kahilingan.';
+      setError(msg);
+      onNotify('error', msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopyReference = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedRef(true);
+      onNotify('info', 'Nakopya ang Reference Number.');
+      setTimeout(() => setCopiedRef(false), 2500);
+    } catch {
+      onNotify('info', `Reference Number: ${value}`);
+    }
+  };
+
+  const handleCheckResetStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessInfo('');
+    setStatusResult(null);
+
+    if (!statusEmail.trim() || !statusRef.trim()) {
+      const msg = 'Pakilagay ang nakarehistrong email address at Reference Number.';
+      setError(msg);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await apiRequest<ResetStatusResult>('/api/auth/reset-status', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: statusEmail.trim(),
+          referenceNumber: statusRef.trim().toUpperCase(),
+        }),
+      });
+      setStatusResult(res);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Hindi nahanap ang hinahanap na request.';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessInfo('');
+
+    const hasLength = newResetPassword.length >= 8;
+    const hasLetter = /[A-Za-z]/.test(newResetPassword);
+    const hasDigit = /\d/.test(newResetPassword);
+
+    if (!hasLength || !hasLetter || !hasDigit) {
+      const msg =
+        'Ang bagong password ay dapat hindi bababa sa 8 karakter at may halong kahit isang letra at isang numero.';
+      setError(msg);
+      return;
+    }
+
+    if (newResetPassword !== confirmResetPassword) {
+      setError('Hindi magkatugma ang bagong password at pagkumpirma.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await apiRequest<{ message: string; referenceNumber: string }>(
+        '/api/auth/reset-password',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            token: resetToken,
+            newPassword: newResetPassword,
+            confirmPassword: confirmResetPassword,
+          }),
+        }
+      );
+      setResetCompleted(true);
+      setSuccessInfo(res.message);
+      onNotify('success', res.message);
+      setNewResetPassword('');
+      setConfirmResetPassword('');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Hindi napalitan ang password.';
       setError(msg);
       onNotify('error', msg);
     } finally {
@@ -332,9 +562,9 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                   <button
                     type="button"
                     onClick={() => onNavigateMode('forgot-password')}
-                    className="font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+                    className="font-semibold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
                   >
-                    Nakalimutan ang password?
+                    Nakalimutan ang Password?
                   </button>
                 </div>
 
@@ -354,9 +584,19 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                   <button
                     type="button"
                     onClick={() => onNavigateMode('register')}
-                    className="font-bold text-blue-700 hover:underline"
+                    className="font-bold text-blue-700 hover:underline cursor-pointer"
                   >
                     Magparehistro rito
+                  </button>
+                </p>
+                <p className="text-slate-600">
+                  May pending na request sa password reset?{' '}
+                  <button
+                    type="button"
+                    onClick={() => onNavigateMode('reset-status')}
+                    className="font-bold text-blue-700 hover:underline cursor-pointer"
+                  >
+                    Suriin ang Status
                   </button>
                 </p>
 
@@ -616,7 +856,59 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 </div>
               )}
 
-              <form onSubmit={handleForgotPassword} className="space-y-4">
+              {forgotReference && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-2.5 text-xs">
+                  <div className="flex items-start gap-2 text-emerald-800">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600" />
+                    <div>
+                      <p className="font-bold">Naipadala na ang iyong kahilingan (Pending)</p>
+                      <p className="text-emerald-700 mt-0.5">
+                        I-save ang iyong Reference Number upang masubaybayan ang desisyon ng Admin kahit
+                        hindi naka-log in:
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2">
+                    <span className="font-mono font-bold text-sm text-slate-900 select-all">
+                      {forgotReference}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyReference(forgotReference)}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                    >
+                      {copiedRef ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                      {copiedRef ? 'Nakopya' : 'Kopyahin'}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusRef(forgotReference);
+                      onNavigateMode('reset-status');
+                    }}
+                    className="w-full rounded-lg bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-700 transition cursor-pointer"
+                  >
+                    Suriin ang Status ng Request Ngayon
+                  </button>
+                </div>
+              )}
+
+              <form onSubmit={handleForgotPassword} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                    Buong Pangalan (Full Name) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={forgotFullName}
+                    onChange={(e) => setForgotFullName(e.target.value)}
+                    placeholder="Hal. Juan Dela Cruz"
+                    className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                     Nakarehistrong Email Address *
@@ -633,10 +925,11 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                    Numero ng Mag-aaral (Para sa Beripikasyon)
+                    Student ID / Numero ng Mag-aaral *
                   </label>
                   <input
                     type="text"
+                    required
                     value={forgotStudentNumber}
                     onChange={(e) => setForgotStudentNumber(e.target.value)}
                     placeholder="Hal. 2026-0142"
@@ -646,13 +939,14 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                    Karagdagang Tala
+                    Dahilan ng Paghingi ng Password Reset *
                   </label>
                   <textarea
-                    rows={2}
+                    rows={3}
+                    required
                     value={forgotReason}
                     onChange={(e) => setForgotReason(e.target.value)}
-                    placeholder="Hal. Nakalimutan ang password pagkatapos magpalit ng device"
+                    placeholder="Ipaliwanag kung bakit kailangan i-reset ang iyong password (hal. nagpalit ng device o nakalimutan ang password)"
                     className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
                   />
                 </div>
@@ -666,14 +960,303 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 </button>
               </form>
 
-              <button
-                type="button"
-                onClick={() => onNavigateMode('login')}
-                className="w-full inline-flex items-center justify-center gap-1.5 text-xs font-bold text-blue-700 hover:underline"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Bumalik sa Pag-log in
-              </button>
+              <div className="pt-2 border-t border-blue-100 flex flex-col items-center gap-2.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => onNavigateMode('reset-status')}
+                  className="inline-flex items-center gap-1.5 font-bold text-blue-700 hover:underline cursor-pointer"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  Suriin ang Status ng Nakaraang Request
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateMode('login')}
+                  className="inline-flex items-center gap-1.5 font-bold text-slate-600 hover:text-blue-700 hover:underline cursor-pointer"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Bumalik sa Pag-log in
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'reset-status' && (
+            <div className="space-y-4">
+              <div className="text-center space-y-1">
+                <div className="mx-auto w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
+                  <Search className="h-5 w-5" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-900">Status ng Password Reset Request</h2>
+                <p className="text-xs text-slate-600">
+                  Ilagay ang iyong nakarehistrong email address at Reference Number upang makita ang
+                  kasalukuyang katayuan ng iyong request kahit hindi naka-log in.
+                </p>
+              </div>
+
+              <form onSubmit={handleCheckResetStatus} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                    Nakarehistrong Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={statusEmail}
+                    onChange={(e) => setStatusEmail(e.target.value)}
+                    placeholder="pangalan@paaralan.ph"
+                    className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                    Request Reference Number *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={statusRef}
+                    onChange={(e) => setStatusRef(e.target.value.toUpperCase())}
+                    placeholder="Hal. TRR-20261126-ABCDEFGH"
+                    className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm font-mono focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-60 transition cursor-pointer"
+                >
+                  {loading ? 'Sinusuri...' : 'Suriin ang Status ng Request'}
+                </button>
+              </form>
+
+              {statusResult && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono font-bold text-slate-800">{statusResult.referenceNumber}</span>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize ${
+                        statusResult.status === 'pending'
+                          ? 'bg-amber-100 text-amber-800'
+                          : statusResult.status === 'approved'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : statusResult.status === 'rejected'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}
+                    >
+                      {statusResult.status}
+                    </span>
+                  </div>
+
+                  <p className="text-sm font-semibold text-slate-900 leading-relaxed">
+                    {statusResult.statusMessage}
+                  </p>
+
+                  {statusResult.status === 'rejected' && statusResult.rejectionReason && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-red-800">
+                      <span className="font-bold">Dahilan ng Admin: </span>
+                      {statusResult.rejectionReason}
+                    </div>
+                  )}
+
+                  {statusResult.status === 'approved' && statusResult.tokenExpiresAt && (
+                    <div className="rounded-lg border border-blue-200 bg-white p-2.5 text-slate-700 flex items-start gap-2">
+                      <Clock className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                      <div>
+                        {statusResult.tokenExpired ? (
+                          <span className="text-red-700 font-semibold">
+                            Nag-expire na ang reset link. Maaaring humiling sa Admin na ipadala itong muli o magsumite ng bagong request.
+                          </span>
+                        ) : (
+                          <span>
+                            May bisa ang reset link sa email hanggang{' '}
+                            <strong>{formatDateTimePH(statusResult.tokenExpiresAt)}</strong> (15 minuto).
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {statusResult.emailDeliveryStatus === 'failed' &&
+                    (statusResult.status === 'approved' || statusResult.status === 'rejected') && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-900 flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                        <span>
+                          Nagkaroon ng problema sa pagpapadala ng email notification. Pakikontak ang iyong
+                          Admin upang maipadala muli ang abiso.
+                        </span>
+                      </div>
+                    )}
+
+                  <div className="pt-2 border-t border-blue-100 text-[11px] text-slate-500 flex flex-wrap justify-between gap-2">
+                    <span>Isinumite: {formatDateTimePH(statusResult.submittedAt)}</span>
+                    <span>Huling update: {formatDateTimePH(statusResult.updatedAt)}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-blue-100 flex flex-col items-center gap-2.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => onNavigateMode('forgot-password')}
+                  className="font-bold text-blue-700 hover:underline cursor-pointer"
+                >
+                  Magsumite ng Bagong Password Reset Request
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateMode('login')}
+                  className="inline-flex items-center gap-1.5 font-bold text-slate-600 hover:text-blue-700 hover:underline cursor-pointer"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Bumalik sa Pag-log in
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'reset-password' && (
+            <div className="space-y-4">
+              <div className="text-center space-y-1">
+                <div className="mx-auto w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-900">Gumawa ng Bagong Password</h2>
+                <p className="text-xs text-slate-600">
+                  Inaprubahan ng Admin ang iyong password reset request. Pumili ng matibay na bagong password.
+                </p>
+              </div>
+
+              {tokenValidating && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-6 text-center text-xs text-slate-600">
+                  Bineberipika ang secure password reset link...
+                </div>
+              )}
+
+              {!tokenValidating && tokenError && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-800 flex items-start gap-2.5">
+                    <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold">Hindi Magamit ang Reset Link</p>
+                      <p>{tokenError}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onNavigateMode('forgot-password')}
+                      className="w-full rounded-xl bg-blue-600 py-2.5 text-xs font-bold text-white hover:bg-blue-700 transition cursor-pointer"
+                    >
+                      Magsumite ng Bagong Request sa Admin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateMode('login')}
+                      className="w-full rounded-xl border border-blue-200 bg-white py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                    >
+                      Bumalik sa Pag-log in
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!tokenValidating && !tokenError && resetCompleted && (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-900 space-y-1.5">
+                    <div className="flex items-center gap-2 font-bold text-emerald-800">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      Matagumpay na Napalitan ang Password
+                    </div>
+                    <p>
+                      Nakumpirma ang pagpapalit ng iyong password at nakapagpadala ng kumpirmasyon sa
+                      iyong email. Markado na bilang Completed ang request.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateMode('login')}
+                    className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition cursor-pointer"
+                  >
+                    Mag-log in gamit ang Bagong Password
+                  </button>
+                </div>
+              )}
+
+              {!tokenValidating && !tokenError && !resetCompleted && tokenInfo && (
+                <form onSubmit={handleConfirmPasswordReset} className="space-y-3.5">
+                  <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800">{tokenInfo.fullName}</span>
+                      <span className="font-mono text-[11px] font-bold text-blue-700">
+                        {tokenInfo.referenceNumber}
+                      </span>
+                    </div>
+                    <p className="text-slate-600">Email: {tokenInfo.emailMasked}</p>
+                    <p className="text-[11px] text-slate-500">
+                      May bisa hanggang: {formatDateTimePH(tokenInfo.expiresAt)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Bagong Password *
+                    </label>
+                    <PasswordInput
+                      required
+                      value={newResetPassword}
+                      onChange={setNewResetPassword}
+                      placeholder="Hindi bababa sa 8 karakter (may letra at numero)"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Kumpirmahin ang Bagong Password *
+                    </label>
+                    <PasswordInput
+                      required
+                      value={confirmResetPassword}
+                      onChange={setConfirmResetPassword}
+                      placeholder="Ulitin ang bagong password"
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-1">
+                    <p className="font-bold text-slate-700 mb-1">Mga Kinakailangan sa Password:</p>
+                    <p className={newResetPassword.length >= 8 ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
+                      {newResetPassword.length >= 8 ? '✓' : '•'} Hindi bababa sa 8 karakter
+                    </p>
+                    <p className={/[A-Za-z]/.test(newResetPassword) ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
+                      {/[A-Za-z]/.test(newResetPassword) ? '✓' : '•'} May kahit isang letra (A-Z / a-z)
+                    </p>
+                    <p className={/\d/.test(newResetPassword) ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
+                      {/\d/.test(newResetPassword) ? '✓' : '•'} May kahit isang numero (0-9)
+                    </p>
+                    <p
+                      className={
+                        newResetPassword.length > 0 && newResetPassword === confirmResetPassword
+                          ? 'text-emerald-700 font-semibold'
+                          : 'text-slate-500'
+                      }
+                    >
+                      {newResetPassword.length > 0 && newResetPassword === confirmResetPassword ? '✓' : '•'}{' '}
+                      Magkatugma ang kumpirmasyon
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-60 transition cursor-pointer"
+                  >
+                    {loading ? 'Sini-save...' : 'I-save ang Bagong Password'}
+                  </button>
+                </form>
+              )}
             </div>
           )}
         </div>

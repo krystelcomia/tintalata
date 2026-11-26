@@ -190,13 +190,60 @@ export async function createDatabase(dbPath = CONFIG.DB_PATH) {
     CREATE TABLE IF NOT EXISTS password_reset_requests (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reference_code TEXT NOT NULL DEFAULT '',
+      full_name TEXT NOT NULL DEFAULT '',
       email TEXT NOT NULL,
       student_number TEXT DEFAULT '',
+      course_section TEXT DEFAULT '',
       reason TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved', 'dismissed')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'completed', 'resolved', 'dismissed')),
+      rejection_reason TEXT DEFAULT '',
+      approved_at TEXT,
+      approved_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      rejected_at TEXT,
+      rejected_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      completed_at TEXT,
       created_at TEXT NOT NULL,
       resolved_at TEXT,
-      resolved_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL
+      resolved_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES password_reset_requests(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS student_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reset_request_id TEXT REFERENCES password_reset_requests(id) ON DELETE SET NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      read_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      reset_request_id TEXT REFERENCES password_reset_requests(id) ON DELETE SET NULL,
+      recipient_email TEXT NOT NULL,
+      email_type TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'failed')),
+      provider TEXT DEFAULT '',
+      provider_message_id TEXT DEFAULT '',
+      error_message TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      sent_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
@@ -205,6 +252,11 @@ export async function createDatabase(dbPath = CONFIG.DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_access_grants_student ON access_grants(student_id, status);
     CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_password_resets_status ON password_reset_requests(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_req ON password_reset_tokens(request_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_student_notifications_user ON student_notifications(user_id, is_read, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_student_notifications_dedupe ON student_notifications(reset_request_id, type) WHERE reset_request_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_email_notifications_req ON email_notifications(reset_request_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_document_shares_target ON document_shares(shared_with_user_id);
   `);
 
@@ -216,9 +268,30 @@ export async function createDatabase(dbPath = CONFIG.DB_PATH) {
 
 async function ensureMigrations(db) {
   if (db.dialect === 'postgres') {
-    await db.exec(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));'
-    );
+    await db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
+      ALTER TABLE password_reset_requests DROP CONSTRAINT IF EXISTS password_reset_requests_status_check;
+      ALTER TABLE password_reset_requests
+        ADD CONSTRAINT password_reset_requests_status_check
+        CHECK (status IN ('pending', 'approved', 'rejected', 'completed', 'resolved', 'dismissed'));
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS reference_code TEXT NOT NULL DEFAULT '';
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT '';
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS course_section TEXT DEFAULT '';
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT '';
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS approved_at TEXT;
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS approved_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS rejected_at TEXT;
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS rejected_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS completed_at TEXT;
+      ALTER TABLE password_reset_requests ADD COLUMN IF NOT EXISTS updated_at TEXT;
+      UPDATE password_reset_requests
+        SET reference_code = 'TRR-' || upper(substr(replace(id, '-', ''), 1, 8))
+        WHERE reference_code = '' OR reference_code IS NULL;
+      UPDATE password_reset_requests
+        SET status = CASE WHEN status = 'resolved' THEN 'completed' WHEN status = 'dismissed' THEN 'rejected' ELSE status END
+        WHERE status IN ('resolved', 'dismissed');
+      CREATE INDEX IF NOT EXISTS idx_password_resets_ref ON password_reset_requests(reference_code);
+    `);
     return;
   }
 
@@ -245,6 +318,51 @@ async function ensureMigrations(db) {
   }
   if (!docCols.has('last_opened_at')) {
     await db.exec('ALTER TABLE documents ADD COLUMN last_opened_at TEXT');
+  }
+
+  // Upgrade older SQLite password_reset_requests CHECK constraint / columns if needed
+  const resetTableDef = await db.get(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_requests'"
+  );
+  if (resetTableDef?.sql && !resetTableDef.sql.includes("'approved'")) {
+    await db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE password_reset_requests_v2 (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reference_code TEXT NOT NULL DEFAULT '',
+        full_name TEXT NOT NULL DEFAULT '',
+        email TEXT NOT NULL,
+        student_number TEXT DEFAULT '',
+        course_section TEXT DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'completed', 'resolved', 'dismissed')),
+        rejection_reason TEXT DEFAULT '',
+        approved_at TEXT,
+        approved_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        rejected_at TEXT,
+        rejected_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT,
+        resolved_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TEXT
+      );
+      INSERT INTO password_reset_requests_v2 (
+        id, user_id, reference_code, email, student_number, reason, status, created_at, resolved_at, resolved_by_admin_id, updated_at
+      )
+      SELECT id, user_id, ('TRR-' || upper(substr(replace(id, '-', ''), 1, 8))), email, student_number, reason,
+             CASE WHEN status = 'resolved' THEN 'completed' WHEN status = 'dismissed' THEN 'rejected' ELSE status END,
+             created_at, resolved_at, resolved_by_admin_id, COALESCE(resolved_at, created_at)
+      FROM password_reset_requests;
+      DROP TABLE password_reset_requests;
+      ALTER TABLE password_reset_requests_v2 RENAME TO password_reset_requests;
+      CREATE INDEX IF NOT EXISTS idx_password_resets_status ON password_reset_requests(status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_password_resets_ref ON password_reset_requests(reference_code);
+      PRAGMA foreign_keys = ON;
+    `);
+  } else {
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_password_resets_ref ON password_reset_requests(reference_code);');
   }
 }
 

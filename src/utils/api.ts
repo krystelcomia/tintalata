@@ -45,6 +45,8 @@ export async function apiRequest<T>(
       path.startsWith('/api/auth/login') ||
       path.startsWith('/api/auth/register') ||
       path.startsWith('/api/auth/forgot-password') ||
+      path.startsWith('/api/auth/reset-status') ||
+      path.startsWith('/api/auth/reset-password') ||
       path.startsWith('/api/auth/me');
     if (res.status === 401 && !isPublicAuthCall) {
       window.dispatchEvent(new CustomEvent('tintalata:unauthorized', { detail: errMsg }));
