@@ -8,6 +8,12 @@ import JSZip from 'jszip';
 import { createDatabase } from '../server/db.mjs';
 import { createApp } from '../server/app.mjs';
 import { CONFIG } from '../server/config.mjs';
+import {
+  decryptRecoveryCode,
+  encryptRecoveryCode,
+  generateRecoveryCode,
+  hashRecoveryCode,
+} from '../server/utils/crypto.mjs';
 
 async function startTestServer() {
   const db = await createDatabase(':memory:');
@@ -406,6 +412,7 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
     }),
   });
   assert.equal(regC.status, 201);
+  assert.match(regC.body.recoveryCode, /^\d{6}$/);
 
   const loginByStudentNum = await studentC.request('/api/auth/login', {
     method: 'POST',
@@ -431,6 +438,7 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
       fullName: 'Krystel Comia',
       email: 'krystel@paaralan.ph',
       studentNumber: '20232024317',
+      recoveryCode: regC.body.recoveryCode,
       reason: 'Nakalimutan ang password',
     }),
   });
@@ -827,6 +835,8 @@ test('Admin-managed forgot password request, approval, rejection, email failure 
     }),
   });
   assert.equal(reg.status, 201);
+  const juanRecoveryCode = reg.body.recoveryCode;
+  assert.match(juanRecoveryCode, /^\d{6}$/);
 
   // Student tries unauthorized admin endpoints -> rejected
   const unauthList = await student.request('/api/admin/password-resets');
@@ -842,6 +852,7 @@ test('Admin-managed forgot password request, approval, rejection, email failure 
       fullName: 'Wrong Name',
       email: 'juan.delacruz@paaralan.ph',
       studentNumber: '2026-1001',
+      recoveryCode: juanRecoveryCode,
       reason: 'Forgot password',
     }),
   });
@@ -854,6 +865,7 @@ test('Admin-managed forgot password request, approval, rejection, email failure 
       fullName: 'Juan Dela Cruz',
       email: 'juan.delacruz@paaralan.ph',
       studentNumber: '2026-1001',
+      recoveryCode: juanRecoveryCode,
       reason: 'Nagpalit ng telepono at nakalimutan ang password',
     }),
   });
@@ -869,6 +881,7 @@ test('Admin-managed forgot password request, approval, rejection, email failure 
       fullName: 'Juan Dela Cruz',
       email: 'juan.delacruz@paaralan.ph',
       studentNumber: '2026-1001',
+      recoveryCode: juanRecoveryCode,
       reason: 'Another attempt',
     }),
   });
@@ -941,6 +954,7 @@ test('Admin-managed forgot password request, approval, rejection, email failure 
       fullName: 'Juan Dela Cruz',
       email: 'juan.delacruz@paaralan.ph',
       studentNumber: '2026-1001',
+      recoveryCode: juanRecoveryCode,
       reason: 'Kumpleto na ang beripikasyon sa Registrar',
     }),
   });
@@ -1157,6 +1171,7 @@ test('Admin-managed forgot password request, approval, rejection, email failure 
       fullName: 'Juan Dela Cruz',
       email: 'juan.delacruz@paaralan.ph',
       studentNumber: '2026-1001',
+      recoveryCode: juanRecoveryCode,
       reason: 'Rate limit test 1',
     }),
   });
@@ -1168,8 +1183,370 @@ test('Admin-managed forgot password request, approval, rejection, email failure 
       fullName: 'Juan Dela Cruz',
       email: 'juan.delacruz@paaralan.ph',
       studentNumber: '2026-1001',
+      recoveryCode: juanRecoveryCode,
       reason: 'Rate limit test 2',
     }),
   });
   assert.equal(rlBlocked.status, 429);
+});
+
+test('Student 6-digit recovery code generation, leading-zero preservation, cross-account rejection, Admin management, invalidation, and brute-force blocking', async (t) => {
+  const { app, db, server, baseUrl } = await startTestServer();
+  t.after(async () => {
+    server.closeAllConnections?.();
+    server.close();
+    await db.close();
+  });
+
+  // 1. Unit check: 250 generated codes are all 6-digit numeric strings (never letters/symbols)
+  for (let i = 0; i < 250; i += 1) {
+    const c = generateRecoveryCode();
+    assert.equal(typeof c, 'string');
+    assert.equal(c.length, 6);
+    assert.match(c, /^\d{6}$/);
+  }
+
+  const admin = new CookieClient(baseUrl);
+  const alice = new CookieClient(baseUrl);
+  const bob = new CookieClient(baseUrl);
+  const anon = new CookieClient(baseUrl);
+
+  const adminLogin = await admin.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: CONFIG.ADMIN_SEED_EMAIL,
+      password: CONFIG.ADMIN_SEED_PASSWORD,
+    }),
+  });
+  assert.equal(adminLogin.status, 200);
+
+  // 2. Register Alice & Bob -> both receive 6-digit recovery codes once at creation
+  const regAlice = await alice.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Alice Mendoza',
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      courseSection: 'BSIS 2-A',
+      password: 'AlicePassword1',
+    }),
+  });
+  assert.equal(regAlice.status, 201);
+  assert.match(regAlice.body.recoveryCode, /^\d{6}$/);
+  assert.equal(regAlice.body.user.recoveryCode, undefined);
+  const aliceId = regAlice.body.user.id;
+
+  const regBob = await bob.request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Bob Santos',
+      email: 'bob.santos@paaralan.ph',
+      studentNumber: '2026-B002',
+      courseSection: 'BSIS 2-B',
+      password: 'BobPassword2',
+    }),
+  });
+  assert.equal(regBob.status, 201);
+  const bobCode = regBob.body.recoveryCode;
+  assert.match(bobCode, /^\d{6}$/);
+  const bobId = regBob.body.user.id;
+
+  // Profile /auth/me must NEVER expose complete recoveryCode
+  const aliceMe = await alice.request('/api/auth/me');
+  assert.equal(aliceMe.status, 200);
+  assert.equal(aliceMe.body.user.recoveryCode, undefined);
+
+  // 3. Unauthorized access checks on recovery code endpoints
+  const bobRevealAlice = await bob.request(`/api/admin/students/${aliceId}/recovery-code/reveal`, {
+    method: 'POST',
+  });
+  assert.equal(bobRevealAlice.status, 403);
+
+  const anonAdminCodes = await anon.request('/api/admin/recovery-codes');
+  assert.equal(anonAdminCodes.status, 401);
+
+  // 4. Preserve leading zeros ('004821') across encryption, DB storage, reveal, and verification
+  const leadingZeroCode = '004821';
+  await db.run(
+    'UPDATE student_recovery_codes SET code_hmac = ?, code_ciphertext = ? WHERE user_id = ? AND status = \'active\'',
+    hashRecoveryCode(aliceId, leadingZeroCode),
+    encryptRecoveryCode(leadingZeroCode, aliceId),
+    aliceId
+  );
+
+  // Stored row in DB must be encrypted, NOT plaintext
+  const storedAliceRow = await db.get(
+    'SELECT code_hmac, code_ciphertext FROM student_recovery_codes WHERE user_id = ? AND status = \'active\'',
+    aliceId
+  );
+  assert.notEqual(storedAliceRow.code_ciphertext, leadingZeroCode);
+  assert.ok(storedAliceRow.code_ciphertext.startsWith('v1:'));
+  assert.notEqual(storedAliceRow.code_hmac, leadingZeroCode);
+  assert.equal(decryptRecoveryCode(storedAliceRow.code_ciphertext, aliceId), leadingZeroCode);
+  // Decryption bound to wrong userId must fail (AAD binding)
+  assert.equal(decryptRecoveryCode(storedAliceRow.code_ciphertext, bobId), null);
+
+  // Admin can search & securely reveal leading-zero code
+  const adminSearch = await admin.request('/api/admin/recovery-codes?search=2026-A001');
+  assert.equal(adminSearch.status, 200);
+  assert.equal(adminSearch.body.records.length, 1);
+  assert.equal(adminSearch.body.records[0].recoveryCode.status, 'active');
+  assert.equal(adminSearch.body.records[0].recoveryCodePlain, undefined);
+
+  const adminReveal = await admin.request(`/api/admin/students/${aliceId}/recovery-code/reveal`, {
+    method: 'POST',
+  });
+  assert.equal(adminReveal.status, 200);
+  assert.equal(adminReveal.body.recoveryCode, leadingZeroCode);
+
+  // 5. Validation failures: incomplete, non-numeric, wrong code, wrong student, bypass attempts
+  await alice.request('/api/auth/logout', { method: 'POST' });
+
+  for (const badCode of ['4821', '00482', '1234567', '00482a', '004-21', '00 821', '']) {
+    const res = await anon.request('/api/auth/verify-recovery-code', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'alice.mendoza@paaralan.ph',
+        studentNumber: '2026-A001',
+        recoveryCode: badCode,
+      }),
+    });
+    assert.equal(res.status, 400, `Expected 400 for malformed code "${badCode}"`);
+  }
+
+  // Wrong code for Alice (valid format) -> rejected
+  const wrongAlice = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      recoveryCode: '999999',
+    }),
+  });
+  assert.equal(wrongAlice.status, 400);
+
+  // Cross-account test: Bob's recovery code cannot verify Alice's account
+  const bobCodeForAlice = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      recoveryCode: bobCode === leadingZeroCode ? '999998' : bobCode,
+    }),
+  });
+  assert.equal(bobCodeForAlice.status, 400);
+
+  // Cannot bypass recovery code verification by posting directly to /forgot-password
+  const bypassForgot = await anon.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      fullName: 'Alice Mendoza',
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      reason: 'Trying to skip recovery code',
+    }),
+  });
+  assert.equal(bypassForgot.status, 400);
+
+  // 6. Correct leading-zero code passes Step 1 verification -> then Admin regenerates BEFORE Step 2
+  const aliceVerify1 = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      recoveryCode: leadingZeroCode,
+    }),
+  });
+  assert.equal(aliceVerify1.status, 200);
+  assert.equal(aliceVerify1.body.verified, true);
+  const oldProofToken = aliceVerify1.body.recoveryProofToken;
+  assert.ok(oldProofToken);
+
+  // Cross-account token swap: Alice's proof token cannot submit a request for Bob
+  const swapProof = await anon.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      recoveryProofToken: oldProofToken,
+      fullName: 'Bob Santos',
+      email: 'bob.santos@paaralan.ph',
+      studentNumber: '2026-B002',
+      reason: 'Cross-account token attack',
+    }),
+  });
+  assert.equal(swapProof.status, 400);
+
+  // Admin regenerates Alice's recovery code -> immediately invalidates old '004821'
+  const regen = await admin.request(`/api/admin/students/${aliceId}/recovery-code/regenerate`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'Student lost previous recovery code' }),
+  });
+  assert.equal(regen.status, 200);
+  const newAliceCode = regen.body.recoveryCode;
+  assert.match(newAliceCode, /^\d{6}$/);
+  assert.notEqual(newAliceCode, leadingZeroCode);
+  assert.equal(regen.body.invalidatedPrevious, true);
+
+  // Old code '004821' is immediately rejected
+  const oldCodeVerify = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      recoveryCode: leadingZeroCode,
+    }),
+  });
+  assert.equal(oldCodeVerify.status, 400);
+
+  // Step-1 proof token minted from the old code is ALSO immediately rejected on Step 2
+  const staleProofSubmit = await anon.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      recoveryProofToken: oldProofToken,
+      fullName: 'Alice Mendoza',
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      reason: 'Using invalidated proof token',
+    }),
+  });
+  assert.equal(staleProofSubmit.status, 400);
+
+  // 7. Verified new code -> enters Pending Admin approval -> Approve sends 15-min reset link
+  const sentEmails = [];
+  db.emailTransport = {
+    async send(msg) {
+      sentEmails.push(msg);
+      return { provider: 'mock-smtp', messageId: `msg-rc-${sentEmails.length}` };
+    },
+  };
+
+  const aliceVerify2 = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      recoveryCode: newAliceCode,
+    }),
+  });
+  assert.equal(aliceVerify2.status, 200);
+
+  const verifiedSubmit = await anon.request('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      recoveryProofToken: aliceVerify2.body.recoveryProofToken,
+      fullName: 'Alice Mendoza',
+      email: 'alice.mendoza@paaralan.ph',
+      studentNumber: '2026-A001',
+      reason: 'Nakalimutan ang password pagkatapos ng update',
+    }),
+  });
+  assert.equal(verifiedSubmit.status, 201);
+  assert.equal(verifiedSubmit.body.status, 'pending');
+
+  // Verify Alice's password was NOT automatically changed yet
+  const aliceStillOldLogin = await alice.request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'alice.mendoza@paaralan.ph', password: 'AlicePassword1' }),
+  });
+  assert.equal(aliceStillOldLogin.status, 200);
+
+  const pendingReqs = await admin.request('/api/admin/password-resets?status=pending');
+  const aliceReq = pendingReqs.body.requests.find(
+    (r) => r.email === 'alice.mendoza@paaralan.ph' && r.status === 'pending'
+  );
+  assert.ok(aliceReq);
+
+  const approveAlice = await admin.request(`/api/admin/password-resets/${aliceReq.id}/approve`, {
+    method: 'POST',
+  });
+  assert.equal(approveAlice.status, 200);
+  assert.equal(approveAlice.body.emailDelivery.sent, true);
+
+  // 8. Brute-force consecutive wrong recovery code block + IP rate limit check
+  for (let attempt = 1; attempt <= CONFIG.RECOVERY_MAX_FAILED_ATTEMPTS; attempt += 1) {
+    const res = await anon.request('/api/auth/verify-recovery-code', {
+      method: 'POST',
+      headers: { 'x-forwarded-for': `198.51.100.${attempt}` },
+      body: JSON.stringify({
+        email: 'bob.santos@paaralan.ph',
+        studentNumber: '2026-B002',
+        recoveryCode: bobCode === '777777' ? '888888' : '777777',
+      }),
+    });
+    assert.equal(
+      res.status,
+      attempt === CONFIG.RECOVERY_MAX_FAILED_ATTEMPTS ? 429 : 400
+    );
+  }
+
+  // Even Bob's real code is now temporarily blocked (429) due to consecutive failures
+  const bobBlocked = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '198.51.100.99' },
+    body: JSON.stringify({
+      email: 'bob.santos@paaralan.ph',
+      studentNumber: '2026-B002',
+      recoveryCode: bobCode,
+    }),
+  });
+  assert.equal(bobBlocked.status, 429);
+
+  // Admin regenerating Bob's code clears the block and issues a fresh active code
+  const bobRegen = await admin.request(`/api/admin/students/${bobId}/recovery-code/regenerate`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'Cleared temporary block with fresh code' }),
+  });
+  assert.equal(bobRegen.status, 200);
+
+  const bobUnblocked = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '198.51.100.100' },
+    body: JSON.stringify({
+      email: 'bob.santos@paaralan.ph',
+      studentNumber: '2026-B002',
+      recoveryCode: bobRegen.body.recoveryCode,
+    }),
+  });
+  assert.equal(bobUnblocked.status, 200);
+
+  // IP rate limiter on /verify-recovery-code
+  app.locals.rateLimitOverrides = { 'verify-recovery': 1 };
+  const ipRl1 = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '203.0.113.77' },
+    body: JSON.stringify({
+      email: 'bob.santos@paaralan.ph',
+      studentNumber: '2026-B002',
+      recoveryCode: bobRegen.body.recoveryCode,
+    }),
+  });
+  assert.equal(ipRl1.status, 200);
+  const ipRl2 = await anon.request('/api/auth/verify-recovery-code', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '203.0.113.77' },
+    body: JSON.stringify({
+      email: 'bob.santos@paaralan.ph',
+      studentNumber: '2026-B002',
+      recoveryCode: bobRegen.body.recoveryCode,
+    }),
+  });
+  assert.equal(ipRl2.status, 429);
+
+  // 9. Verify Audit Logs contain all recovery lifecycle actions and ZERO plaintext codes
+  const auditLogsRes = await admin.request('/api/admin/audit-logs');
+  const auditActions = auditLogsRes.body.logs.map((l) => l.action);
+  for (const expected of [
+    'STUDENT_RECOVERY_CODE_GENERATED',
+    'ADMIN_VIEWED_RECOVERY_CODE',
+    'STUDENT_RECOVERY_VERIFICATION_FAILED',
+    'STUDENT_RECOVERY_CODE_VERIFIED',
+    'ADMIN_INVALIDATED_RECOVERY_CODE',
+    'ADMIN_REGENERATED_RECOVERY_CODE',
+    'RECOVERY_CODE_TEMP_BLOCKED',
+  ]) {
+    assert.ok(auditActions.includes(expected), `Expected audit action ${expected}`);
+  }
+  const allAuditText = JSON.stringify(auditLogsRes.body.logs);
+  assert.equal(allAuditText.includes(leadingZeroCode), false);
+  assert.equal(allAuditText.includes(newAliceCode), false);
+  assert.equal(allAuditText.includes(bobRegen.body.recoveryCode), false);
 });

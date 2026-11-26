@@ -3,7 +3,15 @@ import crypto from 'node:crypto';
 import { CONFIG } from '../config.mjs';
 import { requireAuth, requireRole } from '../middleware/auth.mjs';
 import { getStorageSummary } from '../utils/storage.mjs';
-import { hashPassword, hashToken } from '../utils/crypto.mjs';
+import {
+  decryptRecoveryCode,
+  encryptRecoveryCode,
+  generateRecoveryCode,
+  hashPassword,
+  hashRecoveryCode,
+  hashToken,
+  verifyRecoveryCodeHmac,
+} from '../utils/crypto.mjs';
 import { createStudentAccount } from '../utils/accounts.mjs';
 import {
   buildResetApprovedEmail,
@@ -78,6 +86,43 @@ async function getLatestGrantStatus(db, studentId) {
   }
 
   return { state: 'none', permissionLevel: null };
+}
+
+async function getRecoveryCodeMetadata(db, studentId) {
+  const activeRow = await db.get(
+    `SELECT id, status, created_at, last_viewed_at, last_verified_at
+     FROM student_recovery_codes
+     WHERE user_id = ? AND status = 'active'
+     LIMIT 1`,
+    studentId
+  );
+  const latestInvalidated = await db.get(
+    `SELECT created_at, invalidated_at, invalidated_reason
+     FROM student_recovery_codes
+     WHERE user_id = ? AND status = 'invalidated'
+     ORDER BY invalidated_at DESC, created_at DESC
+     LIMIT 1`,
+    studentId
+  );
+  const guard = await db.get(
+    'SELECT failed_attempts, blocked_until FROM recovery_verification_guards WHERE user_id = ?',
+    studentId
+  );
+  const isBlocked = Boolean(
+    guard?.blocked_until && new Date(guard.blocked_until).getTime() > Date.now()
+  );
+
+  return {
+    status: activeRow ? 'active' : latestInvalidated ? 'invalidated' : 'none',
+    hasActiveCode: Boolean(activeRow),
+    createdAt: activeRow?.created_at || latestInvalidated?.created_at || null,
+    invalidatedAt: latestInvalidated?.invalidated_at || null,
+    lastViewedAt: activeRow?.last_viewed_at || null,
+    lastVerifiedAt: activeRow?.last_verified_at || null,
+    isTemporarilyBlocked: isBlocked,
+    blockedUntil: isBlocked ? guard.blocked_until : null,
+    failedAttempts: Number(guard?.failed_attempts || 0),
+  };
 }
 
 export function createAdminRouter(db) {
@@ -202,6 +247,7 @@ export function createAdminRouter(db) {
           linkedAdminName: r.linked_admin_name || req.user.fullName,
           linkedAdminEmail: r.linked_admin_email || req.user.email,
           authorization: await getLatestGrantStatus(db, r.id),
+          recoveryCode: await getRecoveryCodeMetadata(db, r.id),
         }))
       );
 
@@ -246,6 +292,183 @@ export function createAdminRouter(db) {
       return res.status(201).json({
         message: `Matagumpay na naidagdag ang account ni ${result.user.full_name} at maaari na itong mag-log in.`,
         studentId: result.user.id,
+        recoveryCode: result.recoveryCode,
+      });
+    })
+  );
+
+  router.get(
+    '/recovery-codes',
+    asyncHandler(async (req, res) => {
+      const { search = '' } = req.query;
+      let sql = `
+        SELECT id, full_name, student_number, email, status, created_at
+        FROM users
+        WHERE LOWER(role) = 'student'
+      `;
+      const params = [];
+      if (search && String(search).trim()) {
+        const q = `%${String(search).trim().toLowerCase()}%`;
+        sql += ' AND (LOWER(full_name) LIKE ? OR LOWER(student_number) LIKE ? OR LOWER(email) LIKE ?)';
+        params.push(q, q, q);
+      }
+      sql += ' ORDER BY created_at DESC';
+      const rows = await db.all(sql, ...params);
+      const records = await Promise.all(
+        rows.map(async (r) => ({
+          studentId: r.id,
+          fullName: r.full_name,
+          studentNumber: r.student_number || '',
+          email: r.email,
+          accountStatus: r.status,
+          accountCreatedAt: r.created_at,
+          recoveryCode: await getRecoveryCodeMetadata(db, r.id),
+        }))
+      );
+      return res.json({ records });
+    })
+  );
+
+  router.post(
+    '/students/:id/recovery-code/reveal',
+    asyncHandler(async (req, res) => {
+      const student = await db.get(
+        "SELECT id, full_name, student_number, email FROM users WHERE id = ? AND LOWER(role) = 'student'",
+        req.params.id
+      );
+      if (!student) {
+        return res.status(404).json({ error: 'Hindi natagpuan ang account ng mag-aaral.' });
+      }
+
+      const activeCode = await db.get(
+        `SELECT id, code_hmac, code_ciphertext, status, created_at
+         FROM student_recovery_codes
+         WHERE user_id = ? AND status = 'active'
+         LIMIT 1`,
+        student.id
+      );
+      if (!activeCode) {
+        return res.status(404).json({
+          error: 'Walang aktibong Recovery Code para sa mag-aaral na ito. Maaaring gumawa ng bago.',
+        });
+      }
+
+      const plainCode = decryptRecoveryCode(activeCode.code_ciphertext, student.id);
+      if (!plainCode || !verifyRecoveryCodeHmac(student.id, plainCode, activeCode.code_hmac)) {
+        return res.status(500).json({
+          error:
+            'Hindi ma-decrypt ang kasalukuyang Recovery Code dahil sa pagbabago ng encryption key. Mangyaring gumawa ng bagong Recovery Code para sa mag-aaral.',
+        });
+      }
+
+      const now = new Date().toISOString();
+      await db.run(
+        'UPDATE student_recovery_codes SET last_viewed_at = ?, last_viewed_by_admin_id = ? WHERE id = ?',
+        now,
+        req.user.id,
+        activeCode.id
+      );
+
+      await logAudit(db, {
+        actorId: req.user.id,
+        targetUserId: student.id,
+        action: 'ADMIN_VIEWED_RECOVERY_CODE',
+        details: `Ligtas na sinuri ng Admin ang 6-digit Recovery Code ni ${student.full_name} (${student.email})`,
+      });
+
+      return res.json({
+        recoveryCode: plainCode,
+        status: activeCode.status,
+        createdAt: activeCode.created_at,
+        viewedAt: now,
+        student: {
+          id: student.id,
+          fullName: student.full_name,
+          studentNumber: student.student_number || '',
+          email: student.email,
+        },
+      });
+    })
+  );
+
+  router.post(
+    '/students/:id/recovery-code/regenerate',
+    asyncHandler(async (req, res) => {
+      const student = await db.get(
+        "SELECT id, full_name, student_number, email FROM users WHERE id = ? AND LOWER(role) = 'student'",
+        req.params.id
+      );
+      if (!student) {
+        return res.status(404).json({ error: 'Hindi natagpuan ang account ng mag-aaral.' });
+      }
+
+      const cleanReason =
+        String(req.body?.reason || '').trim().slice(0, 240) ||
+        'Pinalitan ng Tagapangasiwa (nawala o nakompromiso ang dating code)';
+
+      const previousActive = await db.get(
+        `SELECT id, code_ciphertext
+         FROM student_recovery_codes
+         WHERE user_id = ? AND status = 'active'
+         LIMIT 1`,
+        student.id
+      );
+
+      const excludeCode = previousActive
+        ? decryptRecoveryCode(previousActive.code_ciphertext, student.id)
+        : null;
+      const now = new Date().toISOString();
+
+      if (previousActive) {
+        await db.run(
+          `UPDATE student_recovery_codes
+           SET status = 'invalidated',
+               invalidated_at = ?,
+               invalidated_by_admin_id = ?,
+               invalidated_reason = ?
+           WHERE user_id = ? AND status = 'active'`,
+          now,
+          req.user.id,
+          cleanReason,
+          student.id
+        );
+
+        await logAudit(db, {
+          actorId: req.user.id,
+          targetUserId: student.id,
+          action: 'ADMIN_INVALIDATED_RECOVERY_CODE',
+          details: `Agad na na-invalidate ang dating Recovery Code ni ${student.full_name} (${student.email}): ${cleanReason}`,
+        });
+      }
+
+      const nextCode = generateRecoveryCode(excludeCode);
+      await db.run(
+        `INSERT INTO student_recovery_codes (
+          id, user_id, code_hmac, code_ciphertext, status, created_at, created_by_user_id
+        ) VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+        crypto.randomUUID(),
+        student.id,
+        hashRecoveryCode(student.id, nextCode),
+        encryptRecoveryCode(nextCode, student.id),
+        now,
+        req.user.id
+      );
+
+      // Clear any consecutive wrong-attempt lockout on replacement
+      await db.run('DELETE FROM recovery_verification_guards WHERE user_id = ?', student.id);
+
+      await logAudit(db, {
+        actorId: req.user.id,
+        targetUserId: student.id,
+        action: 'ADMIN_REGENERATED_RECOVERY_CODE',
+        details: `Gumawa ng bagong 6-digit Recovery Code para kay ${student.full_name} (${student.email})`,
+      });
+
+      return res.json({
+        message: `Nakagawa ng bagong 6-digit Recovery Code para kay ${student.full_name}. Agad nang hindi magagamit ang dating code.`,
+        recoveryCode: nextCode,
+        createdAt: now,
+        invalidatedPrevious: Boolean(previousActive),
       });
     })
   );
@@ -267,6 +490,7 @@ export function createAdminRouter(db) {
 
       const storage = await getStorageSummary(db, student.id);
       const authorization = await getLatestGrantStatus(db, student.id);
+      const recoveryCode = await getRecoveryCodeMetadata(db, student.id);
       const logs = await db.all(
         `SELECT l.*, u.full_name AS actor_name
          FROM audit_logs l
@@ -290,6 +514,7 @@ export function createAdminRouter(db) {
           lastLoginAt: student.last_login_at,
           storage,
           authorization,
+          recoveryCode,
         },
         auditLogs: logs.map((l) => ({
           id: l.id,

@@ -4,7 +4,12 @@ import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import pg from 'pg';
 import { CONFIG } from './config.mjs';
-import { hashPassword } from './utils/crypto.mjs';
+import {
+  encryptRecoveryCode,
+  generateRecoveryCode,
+  hashPassword,
+  hashRecoveryCode,
+} from './utils/crypto.mjs';
 
 const { Pool } = pg;
 
@@ -246,6 +251,29 @@ export async function createDatabase(dbPath = CONFIG.DB_PATH) {
       sent_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS student_recovery_codes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      code_hmac TEXT NOT NULL,
+      code_ciphertext TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invalidated')),
+      created_at TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      invalidated_at TEXT,
+      invalidated_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      invalidated_reason TEXT DEFAULT '',
+      last_viewed_at TEXT,
+      last_viewed_by_admin_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      last_verified_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS recovery_verification_guards (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      last_failed_at TEXT,
+      blocked_until TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
     CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id, is_deleted);
     CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_id, is_deleted);
@@ -257,12 +285,15 @@ export async function createDatabase(dbPath = CONFIG.DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_student_notifications_user ON student_notifications(user_id, is_read, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_student_notifications_dedupe ON student_notifications(reset_request_id, type) WHERE reset_request_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_email_notifications_req ON email_notifications(reset_request_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON student_recovery_codes(user_id, status, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_codes_one_active ON student_recovery_codes(user_id) WHERE status = 'active';
     CREATE INDEX IF NOT EXISTS idx_document_shares_target ON document_shares(shared_with_user_id);
   `);
 
   await ensureMigrations(db);
   await seedDefaultAdmin(db);
   await linkStudentsToAdmin(db);
+  await backfillMissingStudentRecoveryCodes(db);
   return db;
 }
 
@@ -396,6 +427,41 @@ async function linkStudentsToAdmin(db) {
       "UPDATE users SET managed_by_admin_id = ? WHERE role = 'student' AND managed_by_admin_id IS NULL",
       admin.id
     );
+  }
+}
+
+async function backfillMissingStudentRecoveryCodes(db) {
+  const missing = await db.all(
+    `SELECT u.id, u.email
+     FROM users u
+     WHERE LOWER(u.role) = 'student'
+       AND NOT EXISTS (
+         SELECT 1 FROM student_recovery_codes c
+         WHERE c.user_id = u.id AND c.status = 'active'
+       )`
+  );
+
+  for (const student of missing) {
+    const now = new Date().toISOString();
+    const code = generateRecoveryCode();
+    await db.run(
+      `INSERT INTO student_recovery_codes (
+        id, user_id, code_hmac, code_ciphertext, status, created_at, created_by_user_id
+      ) VALUES (?, ?, ?, ?, 'active', ?, ?)
+      ON CONFLICT DO NOTHING`,
+      crypto.randomUUID(),
+      student.id,
+      hashRecoveryCode(student.id, code),
+      encryptRecoveryCode(code, student.id),
+      now,
+      student.id
+    );
+    await logAudit(db, {
+      actorId: null,
+      targetUserId: student.id,
+      action: 'STUDENT_RECOVERY_CODE_GENERATED',
+      details: `Awtomatikong itinalaga ang paunang 6-digit Recovery Code para sa ${student.email}.`,
+    });
   }
 }
 

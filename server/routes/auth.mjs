@@ -1,7 +1,16 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.mjs';
-import { hashPassword, hashToken, verifyPassword, generateSessionToken } from '../utils/crypto.mjs';
+import {
+  hashPassword,
+  hashToken,
+  verifyPassword,
+  generateSessionToken,
+  isValidRecoveryCodeFormat,
+  verifyRecoveryCodeHmac,
+  signRecoveryProofToken,
+  verifyRecoveryProofToken,
+} from '../utils/crypto.mjs';
 import { getStorageSummary } from '../utils/storage.mjs';
 import { createStudentAccount, EMAIL_RE } from '../utils/accounts.mjs';
 import { createRateLimiter } from '../utils/rateLimit.mjs';
@@ -73,6 +82,184 @@ export function createAuthRouter(db) {
     message: 'Masyadong maraming pagtatangka sa pag-reset ng password. Pakihintay ng ilang minuto.',
   });
 
+  const verifyRecoveryLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 15,
+    keyPrefix: 'verify-recovery',
+    message:
+      'Masyadong maraming pagtatangka sa pagberipika ng Recovery Code. Pakihintay ng ilang minuto.',
+  });
+
+  async function recordRecoveryFailure(userId, email) {
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const guard = await db.get(
+      'SELECT failed_attempts, blocked_until FROM recovery_verification_guards WHERE user_id = ?',
+      userId
+    );
+    const guardExpired = !guard?.blocked_until || new Date(guard.blocked_until).getTime() <= nowMs;
+    const nextAttempts = (guard && guardExpired ? Number(guard.failed_attempts || 0) : 0) + 1;
+    const shouldBlock = nextAttempts >= CONFIG.RECOVERY_MAX_FAILED_ATTEMPTS;
+    const blockedUntil = shouldBlock ? new Date(nowMs + CONFIG.RECOVERY_BLOCK_MS).toISOString() : null;
+
+    await db.run(
+      `INSERT INTO recovery_verification_guards (user_id, failed_attempts, last_failed_at, blocked_until)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET
+         failed_attempts = excluded.failed_attempts,
+         last_failed_at = excluded.last_failed_at,
+         blocked_until = excluded.blocked_until`,
+      userId,
+      nextAttempts,
+      nowIso,
+      blockedUntil
+    );
+
+    await logAudit(db, {
+      actorId: userId,
+      targetUserId: userId,
+      action: shouldBlock ? 'RECOVERY_CODE_TEMP_BLOCKED' : 'STUDENT_RECOVERY_VERIFICATION_FAILED',
+      details: shouldBlock
+        ? `Pansamantalang na-block ang recovery code verification (${nextAttempts} maling subok) para kay ${email}`
+        : `Nabigong beripikasyon ng 6-digit recovery code / Student ID para kay ${email}`,
+    });
+
+    if (shouldBlock) {
+      return {
+        status: 429,
+        error:
+          'Pansamantalang na-block ang beripikasyon ng Recovery Code dahil sa maraming sunod-sunod na maling pagsubok. Pakihintay ng 15 minuto o makipag-ugnayan sa Admin.',
+      };
+    }
+    return {
+      status: 400,
+      error:
+        'Mali ang iyong nakarehistrong email, Student ID, o 6-digit Recovery Code, o na-invalidate na ang code.',
+    };
+  }
+
+  async function verifyStudentRecoveryIdentity({ email, studentNumber, recoveryCode }) {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanStudentNumber = String(studentNumber || '').trim().slice(0, 40);
+    const rawCode = String(recoveryCode ?? '').trim();
+
+    if (!EMAIL_RE.test(cleanEmail)) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Mangyaring ilagay ang wastong nakarehistrong email address.',
+      };
+    }
+    if (!cleanStudentNumber) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Mangyaring ilagay ang iyong Student ID / Numero ng Mag-aaral.',
+      };
+    }
+    if (!isValidRecoveryCodeFormat(rawCode)) {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          'Ang Recovery Code ay dapat eksaktong anim (6) na numero lamang (0–9) at walang letra o simbolo.',
+      };
+    }
+
+    const user = await db.get(
+      "SELECT id, email, full_name, student_number, course_section, status FROM users WHERE LOWER(email) = ? AND LOWER(role) = 'student'",
+      cleanEmail
+    );
+    if (!user) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Walang nahanap o hindi tugma ang iyong nakarehistrong email, Student ID, at Recovery Code.',
+      };
+    }
+    if (user.status !== 'active') {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Ang account na ito ay kasalukuyang sinuspinde o hindi aktibo. Makipag-ugnayan sa Admin.',
+      };
+    }
+
+    const guard = await db.get(
+      'SELECT failed_attempts, blocked_until FROM recovery_verification_guards WHERE user_id = ?',
+      user.id
+    );
+    if (guard?.blocked_until && new Date(guard.blocked_until).getTime() > Date.now()) {
+      return {
+        ok: false,
+        status: 429,
+        error:
+          'Pansamantalang naka-block ang beripikasyon ng Recovery Code dahil sa sunod-sunod na maling pagsubok. Pakihintay ng 15 minuto o makipag-ugnayan sa Admin.',
+      };
+    }
+
+    const savedStudentNum = String(user.student_number || '').trim().toLowerCase();
+    const idMatches = !savedStudentNum || cleanStudentNumber.toLowerCase() === savedStudentNum;
+
+    const activeCode = await db.get(
+      `SELECT id, code_hmac
+       FROM student_recovery_codes
+       WHERE user_id = ? AND status = 'active'
+       LIMIT 1`,
+      user.id
+    );
+
+    if (!idMatches || !activeCode || !verifyRecoveryCodeHmac(user.id, rawCode, activeCode.code_hmac)) {
+      const failResult = await recordRecoveryFailure(user.id, user.email);
+      return { ok: false, ...failResult };
+    }
+
+    const now = new Date().toISOString();
+    await db.run('DELETE FROM recovery_verification_guards WHERE user_id = ?', user.id);
+    await db.run('UPDATE student_recovery_codes SET last_verified_at = ? WHERE id = ?', now, activeCode.id);
+    await logAudit(db, {
+      actorId: user.id,
+      targetUserId: user.id,
+      action: 'STUDENT_RECOVERY_CODE_VERIFIED',
+      details: `Matagumpay na naberipika ang 6-digit Recovery Code para kay ${user.email}`,
+    });
+
+    return { ok: true, user, activeCodeId: activeCode.id, cleanStudentNumber };
+  }
+
+  async function findActiveResetRequestError(userId) {
+    const activeExisting = await db.get(
+      `SELECT id, status, reference_code
+       FROM password_reset_requests
+       WHERE user_id = ? AND status IN ('pending', 'approved')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      userId
+    );
+    if (!activeExisting) return null;
+    if (activeExisting.status === 'pending') {
+      return {
+        status: 409,
+        error: `Mayroon ka nang aktibong kahilingan (${activeExisting.reference_code}) na naghihintay ng pag-apruba ng Admin. Hindi pinapayagan ang dobleng aktibong kahilingan.`,
+      };
+    }
+    const activeToken = await db.get(
+      `SELECT id, expires_at
+       FROM password_reset_tokens
+       WHERE request_id = ? AND used_at IS NULL
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      activeExisting.id
+    );
+    if (activeToken && new Date(activeToken.expires_at).getTime() > Date.now()) {
+      return {
+        status: 409,
+        error: `Naaprubahan na ang iyong aktibong kahilingan (${activeExisting.reference_code}) at may bisa pa ang reset link. Pakitingnan ang iyong email.`,
+      };
+    }
+    return null;
+  }
+
   router.post(
     '/register',
     asyncHandler(async (req, res) => {
@@ -120,6 +307,7 @@ export function createAuthRouter(db) {
         message: 'Matagumpay na nairehistro ang iyong account!',
         user: sanitizeUserPayload(createdUser),
         storage: await getStorageSummary(db, createdUser.id),
+        recoveryCode: result.recoveryCode,
       });
     })
   );
@@ -218,10 +406,48 @@ export function createAuthRouter(db) {
   );
 
   router.post(
+    '/verify-recovery-code',
+    verifyRecoveryLimiter,
+    asyncHandler(async (req, res) => {
+      const { email = '', studentNumber = '', recoveryCode = '' } = req.body || {};
+      const verified = await verifyStudentRecoveryIdentity({ email, studentNumber, recoveryCode });
+      if (!verified.ok) {
+        return res.status(verified.status).json({ error: verified.error });
+      }
+
+      const dupError = await findActiveResetRequestError(verified.user.id);
+      if (dupError) {
+        return res.status(dupError.status).json({ error: dupError.error });
+      }
+
+      const recoveryProofToken = signRecoveryProofToken({
+        userId: verified.user.id,
+        codeId: verified.activeCodeId,
+      });
+
+      return res.json({
+        verified: true,
+        message:
+          'Matagumpay na naberipika ang iyong 6-digit Recovery Code! Maaari ka nang magsumite ng password reset request sa Admin.',
+        recoveryProofToken,
+        fullName: verified.user.full_name,
+        studentNumber: verified.user.student_number || verified.cleanStudentNumber,
+      });
+    })
+  );
+
+  router.post(
     '/forgot-password',
     forgotPasswordLimiter,
     asyncHandler(async (req, res) => {
-      const { fullName = '', email = '', studentNumber = '', reason = '' } = req.body || {};
+      const {
+        fullName = '',
+        email = '',
+        studentNumber = '',
+        reason = '',
+        recoveryCode = '',
+        recoveryProofToken = '',
+      } = req.body || {};
       const cleanFullName = String(fullName).trim().slice(0, 120);
       const cleanEmail = String(email).trim().toLowerCase();
       const cleanStudentNumber = String(studentNumber).trim().slice(0, 40);
@@ -248,68 +474,87 @@ export function createAuthRouter(db) {
         });
       }
 
-      const user = await db.get(
-        "SELECT id, email, full_name, student_number, course_section, status FROM users WHERE LOWER(email) = ? AND LOWER(role) = 'student'",
-        cleanEmail
-      );
+      let user = null;
+      if (recoveryProofToken) {
+        const proof = verifyRecoveryProofToken(String(recoveryProofToken));
+        if (!proof) {
+          return res.status(400).json({
+            error:
+              'Nag-expire o hindi wasto ang iyong beripikasyon ng Recovery Code. Pakilagay muli ang iyong 6-digit Recovery Code.',
+          });
+        }
 
-      if (!user) {
-        return res.status(400).json({
-          error: 'Walang nahanap na account ng mag-aaral para sa inilagay na mga detalye.',
-        });
-      }
+        user = await db.get(
+          "SELECT id, email, full_name, student_number, course_section, status FROM users WHERE LOWER(email) = ? AND LOWER(role) = 'student'",
+          cleanEmail
+        );
+        if (!user || user.id !== proof.userId) {
+          return res.status(400).json({
+            error: 'Hindi tumugma ang beripikadong account sa email na inilagay.',
+          });
+        }
+        if (user.status !== 'active') {
+          return res.status(403).json({
+            error: 'Ang account na ito ay kasalukuyang sinuspinde o hindi aktibo. Makipag-ugnayan sa Admin.',
+          });
+        }
 
-      if (user.status !== 'active') {
-        return res.status(403).json({
-          error: 'Ang account na ito ay kasalukuyang sinuspinde o hindi aktibo. Makipag-ugnayan sa Admin.',
+        const guard = await db.get(
+          'SELECT blocked_until FROM recovery_verification_guards WHERE user_id = ?',
+          user.id
+        );
+        if (guard?.blocked_until && new Date(guard.blocked_until).getTime() > Date.now()) {
+          return res.status(429).json({
+            error: 'Pansamantalang naka-block ang beripikasyon ng Recovery Code. Pakihintay ng 15 minuto.',
+          });
+        }
+
+        const activeCode = await db.get(
+          "SELECT id FROM student_recovery_codes WHERE id = ? AND user_id = ? AND status = 'active'",
+          proof.codeId,
+          user.id
+        );
+        if (!activeCode) {
+          return res.status(400).json({
+            error:
+              'Na-invalidate o napalitan na ng Admin ang iyong Recovery Code. Pakiberipika gamit ang bagong code.',
+          });
+        }
+
+        const savedStudentNum = String(user.student_number || '').trim().toLowerCase();
+        if (savedStudentNum && cleanStudentNumber.toLowerCase() !== savedStudentNum) {
+          return res.status(400).json({
+            error: 'Hindi tumugma ang iyong Student ID sa nakarehistrong account.',
+          });
+        }
+      } else {
+        const verified = await verifyStudentRecoveryIdentity({
+          email: cleanEmail,
+          studentNumber: cleanStudentNumber,
+          recoveryCode,
         });
+        if (!verified.ok) {
+          return res.status(verified.status).json({ error: verified.error });
+        }
+        user = verified.user;
       }
 
       const nameMatches = cleanFullName.toLowerCase() === String(user.full_name || '').trim().toLowerCase();
-      const savedStudentNum = String(user.student_number || '').trim().toLowerCase();
-      const idMatches = !savedStudentNum || cleanStudentNumber.toLowerCase() === savedStudentNum;
-
-      if (!nameMatches || !idMatches) {
+      if (!nameMatches) {
         await logAudit(db, {
           actorId: user.id,
           targetUserId: user.id,
           action: 'STUDENT_PASSWORD_RESET_VERIFICATION_FAILED',
-          details: `Hindi tugma ang beripikasyon para sa password reset request (${user.email})`,
+          details: `Hindi tugma ang buong pangalan sa password reset request (${user.email})`,
         });
         return res.status(400).json({
-          error: 'Hindi tumugma ang iyong Buong Pangalan o Student ID sa nakarehistrong account.',
+          error: 'Hindi tumugma ang iyong Buong Pangalan sa nakarehistrong account.',
         });
       }
 
-      // Check for active pending or non-expired approved requests to prevent duplicates
-      const activeExisting = await db.get(
-        `SELECT id, status, reference_code
-         FROM password_reset_requests
-         WHERE user_id = ? AND status IN ('pending', 'approved')
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        user.id
-      );
-
-      if (activeExisting) {
-        if (activeExisting.status === 'pending') {
-          return res.status(409).json({
-            error: `Mayroon ka nang aktibong kahilingan (${activeExisting.reference_code}) na naghihintay ng pag-apruba ng Admin. Hindi pinapayagan ang dobleng aktibong kahilingan.`,
-          });
-        }
-        const activeToken = await db.get(
-          `SELECT id, expires_at
-           FROM password_reset_tokens
-           WHERE request_id = ? AND used_at IS NULL
-           ORDER BY created_at DESC
-           LIMIT 1`,
-          activeExisting.id
-        );
-        if (activeToken && new Date(activeToken.expires_at).getTime() > Date.now()) {
-          return res.status(409).json({
-            error: `Naaprubahan na ang iyong aktibong kahilingan (${activeExisting.reference_code}) at may bisa pa ang reset link. Pakitingnan ang iyong email.`,
-          });
-        }
+      const dupError = await findActiveResetRequestError(user.id);
+      if (dupError) {
+        return res.status(dupError.status).json({ error: dupError.error });
       }
 
       const now = new Date().toISOString();

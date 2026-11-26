@@ -45,6 +45,15 @@ function resolveSessionSecret() {
   return generated;
 }
 
+const sessionSecret = resolveSessionSecret();
+const recoverySecret =
+  process.env.RECOVERY_CODE_SECRET && process.env.RECOVERY_CODE_SECRET.length >= 32
+    ? process.env.RECOVERY_CODE_SECRET
+    : crypto
+        .createHmac('sha256', sessionSecret)
+        .update('tintalata-student-recovery-code-key-v1')
+        .digest('hex');
+
 export const CONFIG = {
   PORT: Number(process.env.PORT || 3001),
   DATA_DIR,
@@ -55,7 +64,11 @@ export const CONFIG = {
     : process.env.VERCEL
       ? 'sqlite-ephemeral'
       : 'sqlite-local',
-  SESSION_SECRET: resolveSessionSecret(),
+  SESSION_SECRET: sessionSecret,
+  RECOVERY_CODE_SECRET: recoverySecret,
+  RECOVERY_MAX_FAILED_ATTEMPTS: 5,
+  RECOVERY_BLOCK_MS: 15 * 60 * 1000, // 15 minutes temporary lockout after consecutive failures
+  RECOVERY_PROOF_TTL_MS: 15 * 60 * 1000, // 15 minutes window between code verification & form submit
   SESSION_COOKIE_NAME: 'tintalata_session',
   SESSION_TTL_MS: 400 * 24 * 60 * 60 * 1000, // 400 days (browser max), auto-extended while active
   SESSION_TOKEN_LIFETIME_MS: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years until explicit logout

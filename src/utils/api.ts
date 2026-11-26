@@ -44,6 +44,7 @@ export async function apiRequest<T>(
     const isPublicAuthCall =
       path.startsWith('/api/auth/login') ||
       path.startsWith('/api/auth/register') ||
+      path.startsWith('/api/auth/verify-recovery-code') ||
       path.startsWith('/api/auth/forgot-password') ||
       path.startsWith('/api/auth/reset-status') ||
       path.startsWith('/api/auth/reset-password') ||

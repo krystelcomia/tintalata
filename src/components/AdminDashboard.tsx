@@ -25,6 +25,10 @@ import {
   AlertTriangle,
   Send,
   Info,
+  Copy,
+  Check,
+  RotateCw,
+  EyeOff,
 } from 'lucide-react';
 import type {
   AdminOverview,
@@ -80,6 +84,21 @@ export function AdminDashboard({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'inactive'>(
     'all'
   );
+  const [studentViewTab, setStudentViewTab] = useState<'accounts' | 'recovery'>('accounts');
+
+  // Recovery Code Management Modals
+  const [recoveryModalStudent, setRecoveryModalStudent] = useState<AdminStudent | null>(null);
+  const [revealedRecoveryCode, setRevealedRecoveryCode] = useState<string | null>(null);
+  const [recoveryActionBusy, setRecoveryActionBusy] = useState(false);
+  const [copiedAdminCode, setCopiedAdminCode] = useState(false);
+  const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
+  const [regenerateReason, setRegenerateReason] = useState('');
+  const [createdStudentRecovery, setCreatedStudentRecovery] = useState<{
+    fullName: string;
+    email: string;
+    studentNumber: string;
+    recoveryCode: string;
+  } | null>(null);
 
   // Manage Student Modal
   const [selectedStudent, setSelectedStudent] = useState<AdminStudent | null>(null);
@@ -184,7 +203,10 @@ export function AdminDashboard({
     e.preventDefault();
     setCreatingStudent(true);
     try {
-      const res = await apiRequest<{ message: string }>('/api/admin/students', {
+      const createdFullName = newName;
+      const createdEmail = newEmail;
+      const createdStudentNum = newStudentNum;
+      const res = await apiRequest<{ message: string; recoveryCode?: string }>('/api/admin/students', {
         method: 'POST',
         body: JSON.stringify({
           fullName: newName,
@@ -203,11 +225,70 @@ export function AdminDashboard({
       setNewCourse('');
       setNewPassword('');
       setNewQuotaMB(50);
+      if (res.recoveryCode) {
+        setCreatedStudentRecovery({
+          fullName: createdFullName,
+          email: createdEmail,
+          studentNumber: createdStudentNum,
+          recoveryCode: res.recoveryCode,
+        });
+      }
       await loadDashboard();
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : 'Hindi nagawa ang account.');
     } finally {
       setCreatingStudent(false);
+    }
+  };
+
+  const openRecoveryModal = (student: AdminStudent) => {
+    setRecoveryModalStudent(student);
+    setRevealedRecoveryCode(null);
+    setCopiedAdminCode(false);
+    setRegenerateConfirmOpen(false);
+    setRegenerateReason('');
+  };
+
+  const handleRevealRecoveryCode = async () => {
+    if (!recoveryModalStudent) return;
+    setRecoveryActionBusy(true);
+    try {
+      const res = await apiRequest<{ recoveryCode: string }>(
+        `/api/admin/students/${recoveryModalStudent.id}/recovery-code/reveal`,
+        { method: 'POST' }
+      );
+      setRevealedRecoveryCode(res.recoveryCode);
+      setCopiedAdminCode(false);
+      await loadDashboard({ silent: true });
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : 'Hindi maipakita ang Recovery Code.');
+    } finally {
+      setRecoveryActionBusy(false);
+    }
+  };
+
+  const handleRegenerateRecoveryCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recoveryModalStudent) return;
+    setRecoveryActionBusy(true);
+    try {
+      const res = await apiRequest<{ message: string; recoveryCode: string }>(
+        `/api/admin/students/${recoveryModalStudent.id}/recovery-code/regenerate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason: regenerateReason.trim() }),
+        }
+      );
+      setRevealedRecoveryCode(res.recoveryCode);
+      setRegenerateConfirmOpen(false);
+      setRegenerateReason('');
+      setCopiedAdminCode(false);
+      onNotify('success', res.message);
+      await loadDashboard({ silent: true });
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : 'Nabigo ang paggawa ng bagong code.');
+    } finally {
+      setRecoveryActionBusy(false);
     }
   };
 
@@ -837,6 +918,38 @@ export function AdminDashboard({
                 </div>
               </div>
 
+              {/* Sub-Tabs inside Student Account Management */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-white p-2.5 shadow-2xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStudentViewTab('accounts')}
+                    className={`rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+                      studentViewTab === 'accounts'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-blue-50/70 text-slate-700 hover:bg-blue-100'
+                    }`}
+                  >
+                    Lahat ng Account ({students.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudentViewTab('recovery')}
+                    className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+                      studentViewTab === 'recovery'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-blue-50/70 text-slate-700 hover:bg-blue-100'
+                    }`}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Pamamahala ng Recovery Code ({students.length})
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 px-2">
+                  Naka-encrypt ang lahat ng 6-digit recovery code at limitado lamang sa Admin.
+                </p>
+              </div>
+
               <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs overflow-hidden">
                 {loading ? (
                   <div className="p-10 text-center text-sm text-slate-500">
@@ -846,6 +959,80 @@ export function AdminDashboard({
                   <div className="p-10 text-center text-sm text-slate-500">
                     Walang natagpuang account ng mag-aaral.
                   </div>
+                ) : studentViewTab === 'recovery' ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-blue-50/80 text-blue-900 font-bold border-b border-blue-100">
+                        <tr>
+                          <th className="px-4 py-3">Buong Pangalan</th>
+                          <th className="px-4 py-3">Student ID</th>
+                          <th className="px-4 py-3">Nakarehistrong Email</th>
+                          <th className="px-4 py-3">Petsa ng Paggawa ng Account</th>
+                          <th className="px-4 py-3">Recovery Code Status</th>
+                          <th className="px-4 py-3 text-right">Recovery Code Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {students.map((s) => {
+                          const rc = s.recoveryCode;
+                          const rcBadge =
+                            rc?.isTemporarilyBlocked
+                              ? {
+                                  label: 'Naka-block (15m)',
+                                  cls: 'bg-rose-100 text-rose-800 border-rose-200',
+                                }
+                              : rc?.status === 'active'
+                              ? {
+                                  label: 'Aktibo (Encrypted)',
+                                  cls: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                                }
+                              : rc?.status === 'invalidated'
+                              ? {
+                                  label: 'Na-invalidate',
+                                  cls: 'bg-amber-100 text-amber-800 border-amber-200',
+                                }
+                              : {
+                                  label: 'Walang Code',
+                                  cls: 'bg-slate-100 text-slate-600 border-slate-200',
+                                };
+                          return (
+                            <tr key={s.id} className="hover:bg-blue-50/30">
+                              <td className="px-4 py-3.5 font-bold text-slate-900">{s.fullName}</td>
+                              <td className="px-4 py-3.5 font-mono text-slate-700">
+                                {s.studentNumber || '—'}
+                              </td>
+                              <td className="px-4 py-3.5 text-slate-700">{s.email}</td>
+                              <td className="px-4 py-3.5 text-slate-600">
+                                {formatDateTimeTL(s.createdAt)}
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <span
+                                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${rcBadge.cls}`}
+                                >
+                                  {rcBadge.label}
+                                </span>
+                                {rc?.createdAt && (
+                                  <p className="text-[10px] text-slate-400 mt-1">
+                                    Code ginawa: {formatDateTimeTL(rc.createdAt)}
+                                  </p>
+                                )}
+                              </td>
+                              <td className="px-4 py-3.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => openRecoveryModal(s)}
+                                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-blue-700 transition cursor-pointer"
+                                >
+                                  <KeyRound className="h-3.5 w-3.5" />
+                                  Tingnan / Palitan
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -853,6 +1040,7 @@ export function AdminDashboard({
                         <tr>
                           <th className="px-4 py-3">Mag-aaral at Pagpaparehistro</th>
                           <th className="px-4 py-3">Katayuan</th>
+                          <th className="px-4 py-3">Recovery Code</th>
                           <th className="px-4 py-3">Storage (MB)</th>
                           <th className="px-4 py-3">Mga File (Bilang Lamang)</th>
                           <th className="px-4 py-3">Pagkapribado at Pahintulot</th>
@@ -866,6 +1054,7 @@ export function AdminDashboard({
                             s.storageQuotaBytes > 0
                               ? Math.min(100, (s.storageUsedBytes / s.storageQuotaBytes) * 100)
                               : 0;
+                          const rc = s.recoveryCode;
                           return (
                             <tr key={s.id} className="hover:bg-blue-50/30">
                               <td className="px-4 py-3.5">
@@ -888,6 +1077,36 @@ export function AdminDashboard({
                                 >
                                   {badge.label}
                                 </span>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <div className="space-y-1">
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                      rc?.isTemporarilyBlocked
+                                        ? 'bg-rose-100 text-rose-800 border-rose-200'
+                                        : rc?.status === 'active'
+                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                        : 'bg-amber-100 text-amber-800 border-amber-200'
+                                    }`}
+                                  >
+                                    {rc?.isTemporarilyBlocked
+                                      ? 'Naka-block (15m)'
+                                      : rc?.status === 'active'
+                                      ? 'Aktibo'
+                                      : rc?.status === 'invalidated'
+                                      ? 'Na-invalidate'
+                                      : 'Wala'}
+                                  </span>
+                                  <div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openRecoveryModal(s)}
+                                      className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                                    >
+                                      Pamahalaan ang Code
+                                    </button>
+                                  </div>
+                                </div>
                               </td>
                               <td className="px-4 py-3.5 min-w-[160px]">
                                 <div className="flex justify-between text-[11px] font-semibold text-slate-700 mb-1">
@@ -1759,6 +1978,236 @@ export function AdminDashboard({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Recovery Code Management Modal */}
+      {recoveryModalStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-blue-100 overflow-hidden text-xs">
+            <div className="flex items-center justify-between bg-blue-700 px-5 py-4 text-white">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5" />
+                <div>
+                  <h3 className="text-sm font-bold">Pamamahala ng Student Recovery Code</h3>
+                  <p className="text-[11px] text-blue-100">{recoveryModalStudent.fullName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRecoveryModalStudent(null)}
+                className="rounded-lg p-1 hover:bg-white/15 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3.5">
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Buong Pangalan</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{recoveryModalStudent.fullName}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Student ID</p>
+                  <p className="font-mono font-bold text-slate-900 mt-0.5">
+                    {recoveryModalStudent.studentNumber || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Nakarehistrong Email</p>
+                  <p className="font-medium text-slate-800 mt-0.5 break-all">
+                    {recoveryModalStudent.email}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">Petsa ng Account</p>
+                  <p className="font-medium text-slate-800 mt-0.5">
+                    {formatDateTimeTL(recoveryModalStudent.createdAt)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-950 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  <strong>Paalala sa Seguridad:</strong> Naka-encrypt at protektado ang 6-digit
+                  Recovery Code. Huwag itong ipadala sa ordinaryong email at itinatala sa Admin
+                  Activity Logs ang bawat pagtingin o pagpapalit ng code.
+                </p>
+              </div>
+
+              {revealedRecoveryCode ? (
+                <div className="rounded-2xl border-2 border-blue-200 bg-blue-50/40 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-blue-950 uppercase tracking-wider text-[11px]">
+                      Aktibong 6-Digit Recovery Code
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRevealedRecoveryCode(null)}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
+                    >
+                      <EyeOff className="h-3.5 w-3.5" />
+                      Itago
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-6 gap-2">
+                    {revealedRecoveryCode.split('').map((digit, idx) => (
+                      <div
+                        key={idx}
+                        className="flex h-12 items-center justify-center rounded-xl border border-blue-300 bg-white font-mono text-xl font-extrabold text-blue-900 select-all"
+                      >
+                        {digit}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(revealedRecoveryCode);
+                        setCopiedAdminCode(true);
+                        onNotify('info', 'Nakopya ang 6-digit Recovery Code.');
+                        setTimeout(() => setCopiedAdminCode(false), 2500);
+                      } catch {
+                        onNotify('info', 'Piliin at kopyahin ang code sa itaas.');
+                      }
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-white py-2 font-bold text-blue-800 hover:bg-blue-50 cursor-pointer"
+                  >
+                    {copiedAdminCode ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {copiedAdminCode ? 'Nakopya!' : 'Kopyahin ang Code'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={recoveryActionBusy}
+                  onClick={() => void handleRevealRecoveryCode()}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 py-2.5 font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-60 cursor-pointer"
+                >
+                  <Eye className="h-4 w-4" />
+                  {recoveryActionBusy ? 'Kinukuha...' : 'Ipakita ang 6-Digit Recovery Code'}
+                </button>
+              )}
+
+              {!regenerateConfirmOpen ? (
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    disabled={recoveryActionBusy}
+                    onClick={() => setRegenerateConfirmOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3.5 py-2 font-bold text-white hover:bg-amber-700 disabled:opacity-60 cursor-pointer"
+                  >
+                    <RotateCw className="h-3.5 w-3.5" />
+                    Palitan / Gumawa ng Bagong Code
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecoveryModalStudent(null)}
+                    className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Isara
+                  </button>
+                </div>
+              ) : (
+                <form
+                  onSubmit={handleRegenerateRecoveryCode}
+                  className="rounded-xl border border-rose-200 bg-rose-50/70 p-3.5 space-y-3"
+                >
+                  <p className="font-bold text-rose-900">
+                    Kumpirmahin ang Pagpapalit ng Recovery Code
+                  </p>
+                  <p className="text-[11px] text-rose-800 leading-relaxed">
+                    Kapag gumawa ka ng bagong 6-digit code, <strong>agad na mai-invalidate</strong>{' '}
+                    ang lumang code at hindi na ito maaaring gamitin sa Forgot Password.
+                  </p>
+                  <input
+                    type="text"
+                    value={regenerateReason}
+                    onChange={(e) => setRegenerateReason(e.target.value)}
+                    placeholder="Dahilan (hal. Nawala o nakompromiso ng mag-aaral)"
+                    className="w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRegenerateConfirmOpen(false)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 cursor-pointer"
+                    >
+                      Kanselahin
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={recoveryActionBusy}
+                      className="rounded-xl bg-rose-600 px-3.5 py-1.5 font-bold text-white hover:bg-rose-700 disabled:opacity-60 cursor-pointer"
+                    >
+                      {recoveryActionBusy ? 'Ginagawa...' : 'Oo, Gumawa ng Bagong Code'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Newly Created Student Initial Recovery Code Modal */}
+      {createdStudentRecovery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-blue-200 space-y-4 text-xs">
+            <div className="flex items-center gap-2 text-blue-900">
+              <ShieldCheck className="h-5 w-5 text-blue-600" />
+              <h3 className="text-base font-extrabold">Paunang 6-Digit Recovery Code</h3>
+            </div>
+            <p className="text-slate-600">
+              Awtomatikong nalikha ang personal na 6-digit recovery code para kay{' '}
+              <strong>{createdStudentRecovery.fullName}</strong> ({createdStudentRecovery.email}):
+            </p>
+            <div className="grid grid-cols-6 gap-2 rounded-xl border border-blue-200 bg-blue-50/70 p-3">
+              {createdStudentRecovery.recoveryCode.split('').map((digit, i) => (
+                <div
+                  key={i}
+                  className="flex h-11 items-center justify-center rounded-lg border border-blue-300 bg-white font-mono text-xl font-extrabold text-blue-900 select-all"
+                >
+                  {digit}
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+              Ibigay lamang ito nang personal at ligtas sa mag-aaral (huwag ipadala sa ordinaryong
+              email).
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(createdStudentRecovery.recoveryCode);
+                    onNotify('info', 'Nakopya ang 6-digit Recovery Code.');
+                  } catch {
+                    onNotify('info', 'Kopyahin ang code mula sa kahon sa itaas.');
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 font-bold text-blue-800 hover:bg-blue-100 cursor-pointer"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Kopyahin
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreatedStudentRecovery(null)}
+                className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 cursor-pointer"
+              >
+                Nai-save na
+              </button>
+            </div>
           </div>
         </div>
       )}

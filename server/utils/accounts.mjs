@@ -1,6 +1,11 @@
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.mjs';
-import { hashPassword } from './crypto.mjs';
+import {
+  encryptRecoveryCode,
+  generateRecoveryCode,
+  hashPassword,
+  hashRecoveryCode,
+} from './crypto.mjs';
 import { calculateDocumentBytes, recalculateUserStorage } from './storage.mjs';
 import { countWords } from './sanitize.mjs';
 import { logAudit } from '../db.mjs';
@@ -163,6 +168,19 @@ export async function createStudentAccount(
 
   await createStarterWorkspace(db, userId, cleanName);
 
+  const recoveryCode = generateRecoveryCode();
+  await db.run(
+    `INSERT INTO student_recovery_codes (
+      id, user_id, code_hmac, code_ciphertext, status, created_at, created_by_user_id
+    ) VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+    crypto.randomUUID(),
+    userId,
+    hashRecoveryCode(userId, recoveryCode),
+    encryptRecoveryCode(recoveryCode, userId),
+    now,
+    createdByAdminId || userId
+  );
+
   await logAudit(db, {
     actorId: createdByAdminId || userId,
     targetUserId: userId,
@@ -172,6 +190,13 @@ export async function createStudentAccount(
       : `Nagparehistro ang mag-aaral at naiugnay sa Admin: ${cleanEmail}`,
   });
 
+  await logAudit(db, {
+    actorId: createdByAdminId || userId,
+    targetUserId: userId,
+    action: 'STUDENT_RECOVERY_CODE_GENERATED',
+    details: `Awtomatikong nakalikha ng 6-digit Student Recovery Code para kay ${cleanEmail}.`,
+  });
+
   const createdUser = await db.get('SELECT * FROM users WHERE id = ?', userId);
-  return { ok: true, user: createdUser };
+  return { ok: true, user: createdUser, recoveryCode };
 }

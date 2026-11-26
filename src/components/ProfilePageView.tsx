@@ -341,6 +341,17 @@ export function ProfilePageView({
                     {formatDateTimeTL(user.lastLoginAt)}
                   </dd>
                 </div>
+                <div className="pt-2 border-t border-slate-100">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">6-Digit Recovery Code</dt>
+                    <dd className="font-bold text-blue-700">Aktibo (Nakatago)</dd>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+                    Para sa iyong seguridad, hindi muling ipinapakita ang kumpletong recovery code sa
+                    profile. Makipag-ugnayan sa Tagapangasiwa (Admin) kung kailangan itong beripikahin
+                    o palitan.
+                  </p>
+                </div>
               </dl>
             </div>
           </div>

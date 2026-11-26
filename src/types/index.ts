@@ -219,6 +219,18 @@ export interface AdminOverview {
   pendingResetCount?: number;
 }
 
+export interface StudentRecoveryCodeMetadata {
+  status: 'active' | 'invalidated' | 'none';
+  hasActiveCode: boolean;
+  createdAt: string | null;
+  invalidatedAt: string | null;
+  lastViewedAt: string | null;
+  lastVerifiedAt: string | null;
+  isTemporarilyBlocked: boolean;
+  blockedUntil: string | null;
+  failedAttempts: number;
+}
+
 export interface AdminStudent {
   id: string;
   email: string;
@@ -248,6 +260,7 @@ export interface AdminStudent {
     reason?: string;
     createdAt?: string;
   };
+  recoveryCode?: StudentRecoveryCodeMetadata;
 }
 
 export type PasswordResetStatus = 'pending' | 'approved' | 'rejected' | 'completed';

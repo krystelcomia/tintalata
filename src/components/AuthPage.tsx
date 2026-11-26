@@ -17,6 +17,10 @@ import {
   AlertCircle,
   Clock,
   ShieldCheck,
+  Download,
+  Printer,
+  ShieldAlert,
+  Lock,
 } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 import type { PasswordResetStatus, StorageSummary, User } from '../types';
@@ -90,10 +94,27 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   const [regPassword, setRegPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // Forgot password fields
+  // Post-registration Recovery Code Confirmation state
+  const [createdAccountRecovery, setCreatedAccountRecovery] = useState<{
+    recoveryCode: string;
+    user: User;
+    storage: StorageSummary;
+    message: string;
+  } | null>(null);
+  const [copiedRecoveryCode, setCopiedRecoveryCode] = useState(false);
+  const [acknowledgedRecoverySaved, setAcknowledgedRecoverySaved] = useState(false);
+
+  // Forgot password fields (Step 1: Recovery Code verification -> Step 2: Admin Request)
   const [forgotFullName, setForgotFullName] = useState('');
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStudentNumber, setForgotStudentNumber] = useState('');
+  const [forgotRecoveryCode, setForgotRecoveryCode] = useState('');
+  const [forgotVerifiedProof, setForgotVerifiedProof] = useState<{
+    token: string;
+    fullName: string;
+    studentNumber: string;
+    email: string;
+  } | null>(null);
   const [forgotReason, setForgotReason] = useState('');
   const [forgotReference, setForgotReference] = useState('');
   const [copiedRef, setCopiedRef] = useState(false);
@@ -175,6 +196,15 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   useEffect(() => {
     setError('');
     setSuccessInfo('');
+    if (mode !== 'forgot-password') {
+      setForgotVerifiedProof(null);
+      setForgotRecoveryCode('');
+    }
+    if (mode !== 'register') {
+      setCreatedAccountRecovery(null);
+      setAcknowledgedRecoverySaved(false);
+      setCopiedRecoveryCode(false);
+    }
   }, [mode]);
 
   useEffect(() => {
@@ -240,22 +270,193 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
 
     setLoading(true);
     try {
-      const res = await apiRequest<{ user: User; storage: StorageSummary; message: string }>(
-        '/api/auth/register',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            fullName,
-            email: regEmail,
-            studentNumber,
-            courseSection,
-            password: regPassword,
-          }),
-        }
-      );
-      onSuccess(res.user, res.storage, res.message);
+      const res = await apiRequest<{
+        user: User;
+        storage: StorageSummary;
+        message: string;
+        recoveryCode?: string;
+      }>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName,
+          email: regEmail,
+          studentNumber,
+          courseSection,
+          password: regPassword,
+        }),
+      });
+      if (res.recoveryCode) {
+        setCreatedAccountRecovery({
+          recoveryCode: res.recoveryCode,
+          user: res.user,
+          storage: res.storage,
+          message: res.message,
+        });
+        setCopiedRecoveryCode(false);
+        setAcknowledgedRecoverySaved(false);
+        onNotify(
+          'success',
+          'Nagawa na ang iyong account! I-save muna ang iyong 6-digit Recovery Code bago magpatuloy.'
+        );
+      } else {
+        onSuccess(res.user, res.storage, res.message);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Nabigo ang pagpaparehistro.';
+      setError(msg);
+      onNotify('error', msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopyRecoveryCode = async () => {
+    if (!createdAccountRecovery) return;
+    try {
+      await navigator.clipboard.writeText(createdAccountRecovery.recoveryCode);
+      setCopiedRecoveryCode(true);
+      onNotify('info', 'Nakopya ang iyong 6-digit Recovery Code.');
+      setTimeout(() => setCopiedRecoveryCode(false), 3000);
+    } catch {
+      onNotify('info', 'Piliin at kopyahin ang 6-digit code na nakikita sa screen.');
+    }
+  };
+
+  const handleDownloadRecoveryCode = () => {
+    if (!createdAccountRecovery) return;
+    const { recoveryCode: code, user } = createdAccountRecovery;
+    const safeSlug = (user.studentNumber || user.email.split('@')[0] || 'mag-aaral')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+    const content = [
+      '====================================================',
+      '        YOUR TINTALATA RECOVERY CODE',
+      '====================================================',
+      '',
+      `Pangalan        : ${user.fullName}`,
+      `Email Address   : ${user.email}`,
+      `Student ID      : ${user.studentNumber || '—'}`,
+      `Petsa ng Gawa   : ${formatDateTimePH(user.createdAt)}`,
+      '',
+      `6-DIGIT RECOVERY CODE: ${code}`,
+      '',
+      '----------------------------------------------------',
+      'MAHALAGANG PAALALA!',
+      '',
+      'Huwag kalimutan o mawala ang iyong 6-digit Recovery Code.',
+      'Ito ang iyong personal na verification code na kakailanganin',
+      'kapag nakalimutan mo ang iyong password.',
+      '',
+      'Siguraduhing isulat, kopyahin, o itago ito sa ligtas na lugar.',
+      'Hindi ka makakapagpatuloy sa password recovery process kung',
+      'hindi mo maibibigay ang tamang recovery code.',
+      '====================================================',
+    ].join('\n');
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Tintalata-Recovery-Code-${safeSlug}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    onNotify('success', 'Na-download ang file ng iyong Recovery Code.');
+  };
+
+  const handlePrintRecoveryCode = () => {
+    if (!createdAccountRecovery) return;
+    const { recoveryCode: code, user } = createdAccountRecovery;
+    const esc = (v: string) =>
+      String(v || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    const digitsHtml = code
+      .split('')
+      .map(
+        (d) =>
+          `<span style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:60px;border:2px solid #2563eb;border-radius:12px;font-size:28px;font-weight:800;font-family:monospace;color:#1e3a8a;background:#eff6ff;margin:0 4px;">${esc(d)}</span>`
+      )
+      .join('');
+
+    const printWin = window.open('', '_blank', 'width=680,height=740');
+    if (printWin) {
+      printWin.document.write(`<!doctype html>
+<html>
+<head><title>Tintalata Student Recovery Code</title></head>
+<body style="font-family:Segoe UI,Arial,sans-serif;padding:36px;color:#0f172a;max-width:560px;margin:0 auto;">
+  <div style="border:2px solid #bfdbfe;border-radius:16px;padding:28px;background:#ffffff;">
+    <h1 style="margin:0 0 6px;color:#1e3a8a;font-size:20px;text-align:center;">YOUR TINTALATA RECOVERY CODE</h1>
+    <p style="margin:0 0 20px;color:#475569;font-size:13px;text-align:center;">Personal na 6-Digit Verification Credential</p>
+    <div style="text-align:center;margin:20px 0 24px;">${digitsHtml}</div>
+    <div style="font-size:13px;line-height:1.7;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;padding:12px 0;margin-bottom:16px;">
+      <div><strong>Pangalan:</strong> ${esc(user.fullName)}</div>
+      <div><strong>Email:</strong> ${esc(user.email)}</div>
+      <div><strong>Student ID:</strong> ${esc(user.studentNumber || '—')}</div>
+      <div><strong>Petsa:</strong> ${esc(formatDateTimePH(user.createdAt))}</div>
+    </div>
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:14px;font-size:12px;line-height:1.6;color:#78350f;">
+      <strong>MAHALAGANG PAALALA!</strong><br/><br/>
+      Huwag kalimutan o mawala ang iyong 6-digit Recovery Code. Ito ang iyong personal na verification code na kakailanganin kapag nakalimutan mo ang iyong password.<br/><br/>
+      Siguraduhing isulat, kopyahin, o itago ito sa ligtas na lugar. Hindi ka makakapagpatuloy sa password recovery process kung hindi mo maibibigay ang tamang recovery code.
+    </div>
+  </div>
+  <script>window.onload = function(){ window.print(); };</script>
+</body>
+</html>`);
+      printWin.document.close();
+    } else {
+      window.print();
+    }
+  };
+
+  const handleVerifyRecoveryCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessInfo('');
+
+    const cleanCode = forgotRecoveryCode.trim();
+    if (!forgotEmail.trim() || !forgotStudentNumber.trim()) {
+      const msg = 'Pakilagay ang iyong nakarehistrong email address at Student ID.';
+      setError(msg);
+      onNotify('error', msg);
+      return;
+    }
+    if (!/^\d{6}$/.test(cleanCode)) {
+      const msg = 'Ang Recovery Code ay dapat eksaktong anim (6) na numero lamang (0–9).';
+      setError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await apiRequest<{
+        verified: boolean;
+        message: string;
+        recoveryProofToken: string;
+        fullName: string;
+        studentNumber: string;
+      }>('/api/auth/verify-recovery-code', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: forgotEmail.trim(),
+          studentNumber: forgotStudentNumber.trim(),
+          recoveryCode: cleanCode,
+        }),
+      });
+      setForgotVerifiedProof({
+        token: res.recoveryProofToken,
+        fullName: res.fullName,
+        studentNumber: res.studentNumber,
+        email: forgotEmail.trim().toLowerCase(),
+      });
+      setForgotFullName(res.fullName);
+      setSuccessInfo(res.message);
+      onNotify('success', 'Naberipika ang Recovery Code! Magpatuloy sa pagsusumite sa Admin.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Nabigo ang beripikasyon ng Recovery Code.';
       setError(msg);
       onNotify('error', msg);
     } finally {
@@ -270,8 +471,13 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     setForgotReference('');
     setCopiedRef(false);
 
-    if (!forgotFullName.trim() || !forgotEmail.trim() || !forgotStudentNumber.trim() || !forgotReason.trim()) {
-      const msg = 'Pakipunan ang buong pangalan, email address, Student ID, at dahilan ng paghingi ng reset.';
+    if (!forgotVerifiedProof) {
+      setError('Beripikahin muna ang iyong 6-digit Student Recovery Code.');
+      return;
+    }
+
+    if (!forgotFullName.trim() || !forgotReason.trim()) {
+      const msg = 'Pakipunan ang buong pangalan at dahilan ng paghingi ng password reset.';
       setError(msg);
       onNotify('error', msg);
       return;
@@ -279,7 +485,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
 
     setLoading(true);
     try {
-      const submittedEmail = forgotEmail.trim();
+      const submittedEmail = forgotVerifiedProof.email;
       const res = await apiRequest<{
         message: string;
         referenceNumber: string;
@@ -288,9 +494,10 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
       }>('/api/auth/forgot-password', {
         method: 'POST',
         body: JSON.stringify({
+          recoveryProofToken: forgotVerifiedProof.token,
           fullName: forgotFullName.trim(),
           email: submittedEmail,
-          studentNumber: forgotStudentNumber.trim(),
+          studentNumber: forgotVerifiedProof.studentNumber,
           reason: forgotReason.trim(),
         }),
       });
@@ -302,6 +509,8 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
       setForgotFullName('');
       setForgotEmail('');
       setForgotStudentNumber('');
+      setForgotRecoveryCode('');
+      setForgotVerifiedProof(null);
       setForgotReason('');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Hindi naipadala ang kahilingan.';
@@ -471,7 +680,11 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
           className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-50/45 via-white/30 to-blue-100/45"
         />
 
-        <div className="relative z-10 w-full max-w-md mx-auto rounded-2xl bg-white/88 backdrop-blur-md border border-white/80 shadow-xl shadow-blue-950/10 p-6 sm:p-8">
+        <div
+          className={`relative z-10 w-full ${
+            mode === 'register' && createdAccountRecovery ? 'max-w-lg' : 'max-w-md'
+          } mx-auto rounded-2xl bg-white/92 backdrop-blur-md border border-white/80 shadow-xl shadow-blue-950/10 p-6 sm:p-8`}
+        >
           {mode === 'login' && (
             <div className="space-y-6">
               {/* Centered Brand Emblem & Title */}
@@ -636,7 +849,125 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
             </div>
           )}
 
-          {mode === 'register' && (
+          {mode === 'register' && createdAccountRecovery && (
+            <div className="space-y-5">
+              <div className="text-center space-y-2">
+                <div className="mx-auto h-12 w-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <ShieldCheck className="h-6 w-6" />
+                </div>
+                <p className="text-[11px] font-extrabold uppercase tracking-widest text-blue-700">
+                  Matagumpay na Nagawa ang Account
+                </p>
+                <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
+                  YOUR TINTALATA RECOVERY CODE
+                </h1>
+                <p className="text-xs text-slate-600">
+                  Personal na 6-digit verification code para kay{' '}
+                  <strong>{createdAccountRecovery.user.fullName}</strong>
+                </p>
+              </div>
+
+              {/* Large Separated 6-Digit Display */}
+              <div className="rounded-2xl border-2 border-blue-200 bg-gradient-to-b from-blue-50/90 to-white p-4 sm:p-5">
+                <div
+                  aria-label="Your Tintalata 6-Digit Recovery Code"
+                  className="grid grid-cols-6 gap-2 sm:gap-3"
+                >
+                  {createdAccountRecovery.recoveryCode.split('').map((digit, idx) => (
+                    <div
+                      key={idx}
+                      className="flex h-14 sm:h-16 items-center justify-center rounded-xl border-2 border-blue-300 bg-white font-mono text-2xl sm:text-3xl font-extrabold text-blue-900 shadow-xs select-all"
+                    >
+                      {digit}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyRecoveryCode()}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50 transition cursor-pointer"
+                  >
+                    {copiedRecoveryCode ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {copiedRecoveryCode ? 'Nakopya!' : 'Kopyahin ang Code'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadRecoveryCode}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50 transition cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    I-save / I-download
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePrintRecoveryCode}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50 transition cursor-pointer"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    I-print
+                  </button>
+                </div>
+              </div>
+
+              {/* Required Important Filipino Reminder */}
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-950 space-y-2 leading-relaxed">
+                <div className="flex items-center gap-2 font-extrabold text-amber-900 text-sm">
+                  <ShieldAlert className="h-4 w-4 text-amber-700 shrink-0" />
+                  MAHALAGANG PAALALA!
+                </div>
+                <p>
+                  Huwag kalimutan o mawala ang iyong 6-digit Recovery Code. Ito ang iyong personal na
+                  verification code na kakailanganin kapag nakalimutan mo ang iyong password.
+                </p>
+                <p>
+                  Siguraduhing isulat, kopyahin, o itago ito sa ligtas na lugar. Hindi ka
+                  makakapagpatuloy sa password recovery process kung hindi mo maibibigay ang tamang
+                  recovery code.
+                </p>
+              </div>
+
+              {/* Required Confirmation Checkbox */}
+              <label className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 text-xs text-slate-800 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={acknowledgedRecoverySaved}
+                  onChange={(e) => setAcknowledgedRecoverySaved(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-blue-300 text-blue-600 accent-blue-600 shrink-0"
+                />
+                <span className="font-semibold leading-snug">
+                  Kinukumpirma ko na naisulat, nakopya, o naitago ko na sa ligtas na lugar ang
+                  aking 6-digit Recovery Code at nauunawaan kong kakailanganin ito sa pag-recover ng
+                  password.
+                </span>
+              </label>
+
+              <button
+                type="button"
+                disabled={!acknowledgedRecoverySaved}
+                onClick={() =>
+                  onSuccess(
+                    createdAccountRecovery.user,
+                    createdAccountRecovery.storage,
+                    createdAccountRecovery.message
+                  )
+                }
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 to-blue-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-600/25 hover:from-blue-800 hover:to-blue-700 disabled:opacity-45 disabled:cursor-not-allowed transition cursor-pointer"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Magpatuloy sa Workspace
+              </button>
+            </div>
+          )}
+
+          {mode === 'register' && !createdAccountRecovery && (
             <div className="space-y-5">
               <div className="text-center space-y-2.5">
                 <div className="flex justify-center">
@@ -691,12 +1022,13 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                      Numero ng Mag-aaral
+                      Numero ng Mag-aaral *
                     </label>
                     <div className="relative">
                       <Hash className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
                       <input
                         type="text"
+                        required
                         value={studentNumber}
                         onChange={(e) => setStudentNumber(e.target.value)}
                         placeholder="2026-0142"
@@ -894,71 +1226,132 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 </div>
               )}
 
-              <form onSubmit={handleForgotPassword} className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                    Buong Pangalan (Full Name) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={forgotFullName}
-                    onChange={(e) => setForgotFullName(e.target.value)}
-                    placeholder="Hal. Juan Dela Cruz"
-                    className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
-                  />
-                </div>
+              {!forgotReference && !forgotVerifiedProof && (
+                <form onSubmit={handleVerifyRecoveryCode} className="space-y-3.5">
+                  <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-3.5 py-2.5 text-xs text-blue-900 font-semibold flex items-center gap-2">
+                    <Lock className="h-3.5 w-3.5 text-blue-700 shrink-0" />
+                    <span>Hakbang 1 ng 2: Beripikahin ang iyong 6-Digit Student Recovery Code</span>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                    Nakarehistrong Email Address *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    placeholder="pangalan@paaralan.ph"
-                    className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Nakarehistrong Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="pangalan@paaralan.ph"
+                      className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                    Student ID / Numero ng Mag-aaral *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={forgotStudentNumber}
-                    onChange={(e) => setForgotStudentNumber(e.target.value)}
-                    placeholder="Hal. 2026-0142"
-                    className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Student ID / Numero ng Mag-aaral *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={forgotStudentNumber}
+                      onChange={(e) => setForgotStudentNumber(e.target.value)}
+                      placeholder="Hal. 2026-0142"
+                      className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                    Dahilan ng Paghingi ng Password Reset *
-                  </label>
-                  <textarea
-                    rows={3}
-                    required
-                    value={forgotReason}
-                    onChange={(e) => setForgotReason(e.target.value)}
-                    placeholder="Ipaliwanag kung bakit kailangan i-reset ang iyong password (hal. nagpalit ng device o nakalimutan ang password)"
-                    className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      6-Digit Student Recovery Code *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      inputMode="numeric"
+                      pattern="\d{6}"
+                      maxLength={6}
+                      value={forgotRecoveryCode}
+                      onChange={(e) =>
+                        setForgotRecoveryCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      }
+                      placeholder="••••••"
+                      className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-center font-mono text-xl font-extrabold tracking-[0.45em] text-blue-950 focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Ilagay ang eksaktong 6-digit numeric code na ibinigay noong ginawa ang account (kasama ang mga unahang zero).
+                    </p>
+                  </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-60 transition cursor-pointer"
-                >
-                  {loading ? 'Ipinapadala...' : 'Ipadala ang Kahilingan sa Admin'}
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-60 transition cursor-pointer"
+                  >
+                    {loading ? 'Bineberipika...' : 'Beripikahin ang Recovery Code'}
+                  </button>
+                </form>
+              )}
+
+              {!forgotReference && forgotVerifiedProof && (
+                <form onSubmit={handleForgotPassword} className="space-y-3.5">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-900 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-bold">Hakbang 2 ng 2: Naberipika ang Recovery Code</p>
+                      <p className="text-[11px] text-emerald-800">
+                        {forgotVerifiedProof.email} • ID: {forgotVerifiedProof.studentNumber}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotVerifiedProof(null);
+                        setSuccessInfo('');
+                        setError('');
+                      }}
+                      className="text-[11px] font-bold text-blue-700 hover:underline shrink-0 cursor-pointer"
+                    >
+                      Palitan
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Buong Pangalan (Full Name) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={forgotFullName}
+                      onChange={(e) => setForgotFullName(e.target.value)}
+                      placeholder="Hal. Juan Dela Cruz"
+                      className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Dahilan ng Paghingi ng Password Reset *
+                    </label>
+                    <textarea
+                      rows={3}
+                      required
+                      value={forgotReason}
+                      onChange={(e) => setForgotReason(e.target.value)}
+                      placeholder="Ipaliwanag kung bakit kailangan i-reset ang iyong password (hal. nagpalit ng device o nakalimutan ang password)"
+                      className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-60 transition cursor-pointer"
+                  >
+                    {loading ? 'Ipinapadala...' : 'Ipadala ang Kahilingan sa Admin'}
+                  </button>
+                </form>
+              )}
 
               <div className="pt-2 border-t border-blue-100 flex flex-col items-center gap-2.5 text-xs">
                 <button
