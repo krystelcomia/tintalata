@@ -49,7 +49,11 @@ export function ProfilePageView({
   const [error, setError] = useState('');
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredTheme());
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
+    user.notificationSettings?.theme === 'dark' || user.notificationSettings?.theme === 'light'
+      ? user.notificationSettings.theme
+      : getStoredTheme()
+  );
 
   useEffect(() => {
     const onThemeChange = () => setThemeMode(getStoredTheme());
@@ -57,9 +61,27 @@ export function ProfilePageView({
     return () => window.removeEventListener('tintalata:theme-change', onThemeChange);
   }, []);
 
-  const handleSelectTheme = (nextTheme: ThemeMode) => {
+  const handleSelectTheme = async (nextTheme: ThemeMode) => {
     const applied = applyTheme(nextTheme);
     setThemeMode(applied);
+    const nextSettings: NotificationSettings = { ...settings, theme: applied };
+    setSettings(nextSettings);
+    try {
+      const res = await apiRequest<{ user: User; message: string }>('/api/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          notificationSettings: nextSettings,
+        }),
+      });
+      onUpdated(
+        res.user,
+        applied === 'dark'
+          ? 'Na-activate at na-save ang Dark Mode para sa iyong account.'
+          : 'Naibalik sa Light Mode ang iyong account.'
+      );
+    } catch {
+      // Theme still persists locally in localStorage even if offline
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,7 +95,7 @@ export function ProfilePageView({
           fullName,
           studentNumber,
           courseSection,
-          notificationSettings: settings,
+          notificationSettings: { ...settings, theme: themeMode },
           currentPassword: newPassword ? currentPassword : undefined,
           newPassword: newPassword || undefined,
         }),
@@ -290,7 +312,7 @@ export function ProfilePageView({
                   role="switch"
                   aria-checked={themeMode === 'dark'}
                   aria-label="I-toggle ang Dark Mode"
-                  onClick={() => handleSelectTheme(themeMode === 'dark' ? 'light' : 'dark')}
+                  onClick={() => void handleSelectTheme(themeMode === 'dark' ? 'light' : 'dark')}
                   className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ${
                     themeMode === 'dark' ? 'bg-blue-600' : 'bg-slate-300'
                   }`}
@@ -306,11 +328,11 @@ export function ProfilePageView({
               <div className="grid grid-cols-2 gap-2.5 text-xs">
                 <button
                   type="button"
-                  onClick={() => handleSelectTheme('light')}
+                  onClick={() => void handleSelectTheme('light')}
                   className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 font-bold transition-all cursor-pointer ${
                     themeMode === 'light'
                       ? 'border-blue-600 bg-blue-50 text-blue-800 shadow-xs'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-blue-50/50'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-blue-50/50 dark:hover:bg-slate-800'
                   }`}
                 >
                   <Sun className="h-4 w-4" />
@@ -318,11 +340,11 @@ export function ProfilePageView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleSelectTheme('dark')}
+                  onClick={() => void handleSelectTheme('dark')}
                   className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 font-bold transition-all cursor-pointer ${
                     themeMode === 'dark'
                       ? 'border-blue-500 bg-blue-600 text-white shadow-xs'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-blue-50/50'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-blue-50/50 dark:hover:bg-slate-800'
                   }`}
                 >
                   <Moon className="h-4 w-4" />

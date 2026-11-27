@@ -716,7 +716,7 @@ export function StudentWorkspace({
     `w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all duration-300 ${
       active
         ? 'bg-gradient-to-r from-blue-600 via-blue-600 to-sky-600 text-white shadow-md shadow-blue-600/25'
-        : 'text-slate-700 hover:bg-gradient-to-r hover:from-blue-100/90 hover:to-sky-100/70 hover:text-blue-900 hover:translate-x-0.5'
+        : 'text-slate-700 dark:text-slate-200 hover:bg-gradient-to-r hover:from-blue-100/90 hover:to-sky-100/70 dark:hover:from-blue-900/55 dark:hover:to-sky-900/45 hover:text-blue-900 dark:hover:text-white hover:translate-x-0.5'
     }`;
 
   const renderDocCard = (doc: DocumentSummary) => {
@@ -725,7 +725,7 @@ export function StudentWorkspace({
     return (
       <div
         key={doc.id}
-        className="group rounded-2xl border border-blue-200/80 bg-white/95 p-4 shadow-sm hover:border-blue-400 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3"
+        className="group rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 p-4 shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 dark:hover:from-slate-900 dark:hover:to-blue-950/70 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3"
       >
         <div className="space-y-2">
           <div className="flex items-start justify-between gap-2">
@@ -1394,7 +1394,7 @@ export function StudentWorkspace({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Maghanap ng file..."
-                    className="w-full rounded-xl border border-blue-200 bg-blue-50/40 pl-9 pr-3 py-2 text-xs font-medium text-slate-900 focus:border-blue-600 focus:bg-white focus:outline-none"
+                    className="w-full rounded-xl border border-blue-200 dark:border-blue-800/80 bg-blue-50/40 dark:bg-slate-950 pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-400 focus:border-blue-600 dark:focus:border-blue-400 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
                   />
                 </div>
 
@@ -1500,30 +1500,30 @@ export function StudentWorkspace({
 
                       {/* Recently Opened & Recently Created */}
                       <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
-                          <div className="border-b border-blue-200/70 bg-gradient-to-r from-blue-600/12 via-sky-500/10 to-indigo-500/10 px-5 py-3 flex items-center justify-between">
-                            <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
-                              <Clock className="h-4 w-4 text-blue-600" />
+                        <div className="rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-300 overflow-hidden">
+                          <div className="border-b border-blue-200/70 dark:border-blue-900/60 bg-gradient-to-r from-blue-600/12 via-sky-500/10 to-indigo-500/10 px-5 py-3 flex items-center justify-between">
+                            <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                              <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                               Kamakailang Binuksan
                             </span>
                             <button
                               type="button"
                               onClick={() => setNavSection('recent')}
-                              className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
+                              className="text-xs font-bold text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 hover:underline transition-colors duration-200"
                             >
                               Lahat
                             </button>
                           </div>
-                          <div className="divide-y divide-blue-50">
+                          <div className="divide-y divide-blue-50 dark:divide-slate-800">
                             {recentlyOpenedDocs.length === 0 ? (
-                              <p className="p-6 text-xs text-slate-500">Wala pang binuksang file.</p>
+                              <p className="p-6 text-xs text-slate-500 dark:text-slate-400">Wala pang binuksang file.</p>
                             ) : (
                               recentlyOpenedDocs.map((d) => (
                                 <button
                                   key={d.id}
                                   type="button"
                                   onClick={() => void openDocumentById(d.id)}
-                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 transition-colors duration-200"
+                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 dark:hover:from-blue-950/60 dark:hover:to-sky-950/40 transition-colors duration-200"
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
                                     <FileText className="h-4 w-4 text-blue-600 shrink-0" />
@@ -1546,10 +1546,10 @@ export function StudentWorkspace({
                           </div>
                         </div>
 
-                        <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
-                          <div className="border-b border-blue-200/70 bg-gradient-to-r from-sky-500/12 via-blue-600/10 to-cyan-500/10 px-5 py-3 flex items-center justify-between">
-                            <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
-                              <FilePlus2 className="h-4 w-4 text-blue-600" />
+                        <div className="rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-300 overflow-hidden">
+                          <div className="border-b border-blue-200/70 dark:border-blue-900/60 bg-gradient-to-r from-sky-500/12 via-blue-600/10 to-cyan-500/10 px-5 py-3 flex items-center justify-between">
+                            <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                              <FilePlus2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                               Kamakailang Ginawa
                             </span>
                             <button
@@ -1558,21 +1558,21 @@ export function StudentWorkspace({
                                 setSortBy('created');
                                 setNavSection('documents');
                               }}
-                              className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
+                              className="text-xs font-bold text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 hover:underline transition-colors duration-200"
                             >
                               Lahat
                             </button>
                           </div>
-                          <div className="divide-y divide-blue-50">
+                          <div className="divide-y divide-blue-50 dark:divide-slate-800">
                             {recentlyCreatedDocs.length === 0 ? (
-                              <p className="p-6 text-xs text-slate-500">Wala pang ginawang file.</p>
+                              <p className="p-6 text-xs text-slate-500 dark:text-slate-400">Wala pang ginawang file.</p>
                             ) : (
                               recentlyCreatedDocs.map((d) => (
                                 <button
                                   key={d.id}
                                   type="button"
                                   onClick={() => void openDocumentById(d.id)}
-                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 transition-colors duration-200"
+                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 dark:hover:from-blue-950/60 dark:hover:to-sky-950/40 transition-colors duration-200"
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
                                     <FileText className="h-4 w-4 text-blue-600 shrink-0" />
@@ -1627,7 +1627,7 @@ export function StudentWorkspace({
                           {visibleFolders.map((folder) => (
                             <div
                               key={folder.id}
-                              className="group rounded-2xl border border-blue-200/80 bg-white/95 p-4 shadow-sm hover:border-blue-400 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3"
+                              className="group rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 p-4 shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 dark:hover:from-slate-900 dark:hover:to-blue-950/70 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3"
                             >
                               <button
                                 type="button"
@@ -1735,18 +1735,18 @@ export function StudentWorkspace({
                           : `Lahat ng Dokumento (${visibleDocuments.length})`}
                       </h2>
                       {visibleDocuments.length === 0 ? (
-                        <div className="rounded-2xl border border-blue-200/80 bg-gradient-to-br from-white via-blue-50/75 to-sky-50/85 p-10 text-center shadow-sm hover:border-blue-400 hover:shadow-md transition-all duration-300">
+                        <div className="rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-gradient-to-br from-white via-blue-50/75 to-sky-50/85 dark:from-slate-900 dark:via-slate-900 dark:to-blue-950/60 p-10 text-center shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all duration-300">
                           <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-600 to-sky-500 text-white shadow-md shadow-blue-500/25 flex items-center justify-center">
                             <FileText className="h-6 w-6" />
                           </div>
-                          <h3 className="text-sm font-extrabold text-blue-950">
+                          <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-100">
                             {navSection === 'favorites'
                               ? 'Wala pang paboritong dokumento'
                               : navSection === 'shared'
                                 ? 'Wala pang dokumentong ibinahagi sa iyo'
                                 : 'Wala pang dokumento rito'}
                           </h3>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                             {navSection === 'favorites'
                               ? 'Pindutin ang bituin sa alinmang dokumento upang mailagay dito.'
                               : navSection === 'shared'

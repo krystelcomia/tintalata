@@ -7,6 +7,7 @@ export interface NotificationSettings {
   notifyShareAlerts: boolean;
   notifyPrivacyRequests: boolean;
   defaultDownloadFormat: 'docx' | 'pdf' | 'doc' | 'html' | 'txt';
+  theme?: 'light' | 'dark';
 }
 
 export interface User {

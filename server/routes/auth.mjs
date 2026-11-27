@@ -34,7 +34,12 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
 
 function parseNotificationSettings(raw) {
   try {
-    return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(raw || '{}') };
+    const parsed = JSON.parse(raw || '{}');
+    const merged = { ...DEFAULT_NOTIFICATION_SETTINGS, ...parsed };
+    if (merged.theme !== 'light' && merged.theme !== 'dark') {
+      delete merged.theme;
+    }
+    return merged;
   } catch {
     return { ...DEFAULT_NOTIFICATION_SETTINGS };
   }
@@ -971,6 +976,11 @@ export function createAuthRouter(db) {
               )
                 ? notificationSettings.defaultDownloadFormat
                 : existingSettings.defaultDownloadFormat,
+              ...(notificationSettings.theme === 'light' || notificationSettings.theme === 'dark'
+                ? { theme: notificationSettings.theme }
+                : existingSettings.theme === 'light' || existingSettings.theme === 'dark'
+                  ? { theme: existingSettings.theme }
+                  : {}),
             }
           : existingSettings;
 

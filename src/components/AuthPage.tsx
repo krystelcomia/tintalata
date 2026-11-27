@@ -731,7 +731,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Email o Numero ng Mag-aaral
                   </label>
                   <div className="relative">
-                    <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+                    <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <input
                       id="login-email"
                       type="text"
@@ -740,7 +740,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       placeholder="pangalan@paaralan.ph o 2026-0001"
-                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-4 py-3 text-sm text-slate-900 placeholder-slate-400 shadow-2xs focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100 transition"
+                      className="w-full rounded-xl border border-blue-200 dark:border-blue-800/80 bg-white dark:bg-slate-950 pl-10 pr-4 py-3 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 shadow-2xs focus:border-blue-600 dark:focus:border-blue-400 focus:outline-none focus:ring-3 focus:ring-blue-100 dark:focus:ring-blue-500/25 transition"
                     />
                   </div>
                 </div>
@@ -966,14 +966,14 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Buong Pangalan *
                   </label>
                   <div className="relative">
-                    <UserIcon className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+                    <UserIcon className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <input
                       type="text"
                       required
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       placeholder="Hal. Juan Dela Cruz"
-                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                      className="w-full rounded-xl border border-blue-200 dark:border-blue-800/80 bg-white dark:bg-slate-950 pl-10 pr-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-600 dark:focus:border-blue-400 focus:outline-none focus:ring-3 focus:ring-blue-100 dark:focus:ring-blue-500/25"
                     />
                   </div>
                 </div>
@@ -984,14 +984,14 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                       Numero ng Mag-aaral *
                     </label>
                     <div className="relative">
-                      <Hash className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+                      <Hash className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 dark:text-blue-400" />
                       <input
                         type="text"
                         required
                         value={studentNumber}
                         onChange={(e) => setStudentNumber(e.target.value)}
                         placeholder="2026-0142"
-                        className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                        className="w-full rounded-xl border border-blue-200 dark:border-blue-800/80 bg-white dark:bg-slate-950 pl-10 pr-3 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-600 dark:focus:border-blue-400 focus:outline-none focus:ring-3 focus:ring-blue-100 dark:focus:ring-blue-500/25"
                       />
                     </div>
                   </div>
@@ -1001,13 +1001,13 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                       Kurso / Seksyon
                     </label>
                     <div className="relative">
-                      <GraduationCap className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+                      <GraduationCap className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 dark:text-blue-400" />
                       <input
                         type="text"
                         value={courseSection}
                         onChange={(e) => setCourseSection(e.target.value)}
                         placeholder="BSIS 2-A"
-                        className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                        className="w-full rounded-xl border border-blue-200 dark:border-blue-800/80 bg-white dark:bg-slate-950 pl-10 pr-3 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-600 dark:focus:border-blue-400 focus:outline-none focus:ring-3 focus:ring-blue-100 dark:focus:ring-blue-500/25"
                       />
                     </div>
                   </div>
@@ -1018,14 +1018,14 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Email Address *
                   </label>
                   <div className="relative">
-                    <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+                    <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <input
                       type="email"
                       required
                       value={regEmail}
                       onChange={(e) => setRegEmail(e.target.value)}
                       placeholder="pangalan@paaralan.ph"
-                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                      className="w-full rounded-xl border border-blue-200 dark:border-blue-800/80 bg-white dark:bg-slate-950 pl-10 pr-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-600 dark:focus:border-blue-400 focus:outline-none focus:ring-3 focus:ring-blue-100 dark:focus:ring-blue-500/25"
                     />
                   </div>
                 </div>
@@ -1089,7 +1089,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     6-Digit Recovery Code *
                   </label>
                   <div className="relative">
-                    <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+                    <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <input
                       id="reg-recovery-code"
                       type="text"
@@ -1102,7 +1102,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                         setRegRecoveryCode(e.target.value.replace(/\D/g, '').slice(0, 6))
                       }
                       placeholder="Ilagay ang 6-digit na numero (hal. 042819)"
-                      className="w-full rounded-xl border border-blue-200 bg-white pl-10 pr-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                      className="w-full rounded-xl border border-blue-200 dark:border-blue-800/80 bg-white dark:bg-slate-950 pl-10 pr-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-600 dark:focus:border-blue-400 focus:outline-none focus:ring-3 focus:ring-blue-100 dark:focus:ring-blue-500/25"
                     />
                   </div>
 

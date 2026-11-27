@@ -109,32 +109,63 @@ html.dark .bg-slate-50:not(.print-page):not(.print-page *):not(.tintalata-keep-l
 html.dark .bg-slate-100:not(.print-page):not(.print-page *):not(.tintalata-keep-light):not([class*="dark:bg-"]) {
   background-color: #162033;
 }
+html.dark .bg-slate-200:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
+  background-color: #24344d;
+  color: #e2e8f0;
+}
 html.dark .bg-\[\#eef4fc\]:not(.print-page):not(.print-page *) {
   background-color: #09111f;
 }
 html.dark .bg-blue-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-blue-50\/80:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-blue-50\/70:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-blue-50\/60:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-blue-50\/50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-blue-50\/40:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-blue-50\/90:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-sky-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-teal-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-indigo-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
-  background-color: rgba(30, 58, 138, 0.24);
+  background-color: rgba(30, 58, 138, 0.28);
 }
-html.dark .bg-blue-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
-  background-color: rgba(37, 99, 235, 0.22);
+html.dark .bg-blue-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-sky-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-indigo-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
+  background-color: rgba(37, 99, 235, 0.25);
 }
 html.dark .bg-amber-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-amber-50\/70:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-amber-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
-  background-color: rgba(180, 83, 9, 0.24);
+  background-color: rgba(180, 83, 9, 0.26);
 }
 html.dark .bg-rose-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
-html.dark .bg-rose-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
-  background-color: rgba(190, 18, 60, 0.22);
+html.dark .bg-rose-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-red-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-red-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
+  background-color: rgba(190, 18, 60, 0.25);
 }
 html.dark .bg-emerald-50:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
+html.dark .bg-emerald-50\/60:not(.print-page):not(.print-page *):not([class*="dark:bg-"]),
 html.dark .bg-emerald-100:not(.print-page):not(.print-page *):not([class*="dark:bg-"]) {
-  background-color: rgba(6, 95, 70, 0.26);
+  background-color: rgba(6, 95, 70, 0.28);
+}
+
+/* Gradient stop fallbacks so gradient cards never stay white in dark mode */
+html.dark .from-white:not(.print-page):not(.print-page *):not([class*="dark:from-"]) {
+  --tw-gradient-from: #0f172a;
+}
+html.dark .via-blue-50\/75:not(.print-page):not(.print-page *):not([class*="dark:via-"]),
+html.dark .via-blue-50\/90:not(.print-page):not(.print-page *):not([class*="dark:via-"]),
+html.dark .via-sky-50\/70:not(.print-page):not(.print-page *):not([class*="dark:via-"]),
+html.dark .via-sky-50\/90:not(.print-page):not(.print-page *):not([class*="dark:via-"]) {
+  --tw-gradient-via: #0f1a2e;
+}
+html.dark .to-white:not(.print-page):not(.print-page *):not([class*="dark:to-"]),
+html.dark .to-blue-50\/80:not(.print-page):not(.print-page *):not([class*="dark:to-"]),
+html.dark .to-blue-50\/90:not(.print-page):not(.print-page *):not([class*="dark:to-"]),
+html.dark .to-sky-50\/85:not(.print-page):not(.print-page *):not([class*="dark:to-"]),
+html.dark .to-indigo-50\/80:not(.print-page):not(.print-page *):not([class*="dark:to-"]) {
+  --tw-gradient-to: #111f38;
 }
 
 html.dark .text-slate-900:not(.print-page):not(.print-page *):not(.tintalata-keep-light):not(.tintalata-keep-light *):not([class*="dark:text-"]),
@@ -144,12 +175,13 @@ html.dark .text-slate-800:not(.print-page):not(.print-page *):not(.tintalata-kee
 html.dark .text-slate-700:not(.print-page):not(.print-page *):not([class*="dark:text-"]) {
   color: #cbd5e1;
 }
-html.dark .text-slate-600:not(.print-page):not(.print-page *):not([class*="dark:text-"]) {
-  color: #94a3b8;
-}
+html.dark .text-slate-600:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
 html.dark .text-slate-500:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
 html.dark .text-slate-400:not(.print-page):not(.print-page *):not([class*="dark:text-"]) {
   color: #94a3b8;
+}
+html.dark .text-slate-300:not(.print-page):not(.print-page *):not([class*="dark:text-"]) {
+  color: #64748b;
 }
 html.dark .text-blue-950:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
 html.dark .text-blue-900:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
@@ -157,20 +189,34 @@ html.dark .text-blue-800:not(.print-page):not(.print-page *):not([class*="dark:t
 html.dark .text-blue-700:not(.print-page):not(.print-page *):not([class*="dark:text-"]) {
   color: #93c5fd;
 }
+html.dark .text-blue-600:not(.print-page):not(.print-page *):not(.bg-blue-600):not([class*="dark:text-"]),
+html.dark .text-sky-700:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
+html.dark .text-sky-600:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
+html.dark .text-teal-700:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
+html.dark .text-indigo-700:not(.print-page):not(.print-page *):not([class*="dark:text-"]),
+html.dark .text-indigo-600:not(.print-page):not(.print-page *):not(.bg-indigo-600):not([class*="dark:text-"]) {
+  color: #60a5fa;
+}
 html.dark .text-amber-950:not(.print-page):not(.print-page *),
 html.dark .text-amber-900:not(.print-page):not(.print-page *),
 html.dark .text-amber-800:not(.print-page):not(.print-page *),
-html.dark .text-amber-700:not(.print-page):not(.print-page *) {
+html.dark .text-amber-700:not(.print-page):not(.print-page *),
+html.dark .text-amber-600:not(.print-page):not(.print-page *) {
   color: #fcd34d;
 }
 html.dark .text-rose-900:not(.print-page):not(.print-page *),
 html.dark .text-rose-800:not(.print-page):not(.print-page *),
 html.dark .text-rose-700:not(.print-page):not(.print-page *),
-html.dark .text-rose-600:not(.print-page):not(.print-page *) {
+html.dark .text-rose-600:not(.print-page):not(.print-page *),
+html.dark .text-red-800:not(.print-page):not(.print-page *),
+html.dark .text-red-700:not(.print-page):not(.print-page *) {
   color: #fda4af;
 }
+html.dark .text-emerald-950:not(.print-page):not(.print-page *),
+html.dark .text-emerald-900:not(.print-page):not(.print-page *),
 html.dark .text-emerald-800:not(.print-page):not(.print-page *),
-html.dark .text-emerald-700:not(.print-page):not(.print-page *) {
+html.dark .text-emerald-700:not(.print-page):not(.print-page *),
+html.dark .text-emerald-700\/80:not(.print-page):not(.print-page *) {
   color: #6ee7b7;
 }
 
@@ -179,37 +225,95 @@ html.dark .border-blue-100\/80:not(.print-page):not(.print-page *):not([class*="
 html.dark .border-blue-200:not(.print-page):not(.print-page *):not([class*="dark:border-"]),
 html.dark .border-blue-200\/80:not(.print-page):not(.print-page *):not([class*="dark:border-"]),
 html.dark .border-blue-200\/70:not(.print-page):not(.print-page *):not([class*="dark:border-"]),
+html.dark .border-blue-300:not(.print-page):not(.print-page *):not([class*="dark:border-"]),
 html.dark .border-slate-100:not(.print-page):not(.print-page *):not([class*="dark:border-"]),
-html.dark .border-slate-200:not(.print-page):not(.print-page *):not([class*="dark:border-"]) {
+html.dark .border-slate-200:not(.print-page):not(.print-page *):not([class*="dark:border-"]),
+html.dark .border-slate-300:not(.print-page):not(.print-page *):not([class*="dark:border-"]) {
+  border-color: #24395c;
+}
+html.dark .divide-blue-50 > :not(:last-child),
+html.dark .divide-slate-100 > :not(:last-child),
+html.dark .divide-slate-200 > :not(:last-child) {
   border-color: #1e3252;
 }
+html.dark .border-amber-100:not(.print-page):not(.print-page *),
 html.dark .border-amber-200:not(.print-page):not(.print-page *),
 html.dark .border-amber-300:not(.print-page):not(.print-page *) {
   border-color: rgba(245, 158, 11, 0.35);
 }
 html.dark .border-rose-200:not(.print-page):not(.print-page *),
-html.dark .border-rose-300:not(.print-page):not(.print-page *) {
+html.dark .border-rose-300:not(.print-page):not(.print-page *),
+html.dark .border-red-200:not(.print-page):not(.print-page *) {
   border-color: rgba(244, 63, 94, 0.38);
 }
+html.dark .border-emerald-200:not(.print-page):not(.print-page *) {
+  border-color: rgba(16, 185, 129, 0.38);
+}
 
+/* Readable inputs, focus rings, disabled controls, dropdown options, and browser autofill */
 html.dark input:not(.print-page *):not(.tintalata-inline-title):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
 html.dark select:not(.print-page *),
 html.dark textarea:not(.print-page *) {
   background-color: #0b1322;
-  color: #f1f5f9;
-  border-color: #294169;
+  color: #f8fafc;
+  border-color: #334e7b;
+  caret-color: #60a5fa;
+}
+html.dark input:focus:not(.print-page *):not(.tintalata-inline-title):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+html.dark select:focus:not(.print-page *),
+html.dark textarea:focus:not(.print-page *) {
+  background-color: #0f172a;
+  color: #ffffff;
+  border-color: #3b82f6;
+  --tw-ring-color: rgba(59, 130, 246, 0.28);
+}
+html.dark input:disabled:not(.print-page *),
+html.dark select:disabled:not(.print-page *),
+html.dark textarea:disabled:not(.print-page *) {
+  background-color: #131e33;
+  color: #94a3b8;
+  border-color: #243654;
 }
 html.dark input:not(.print-page *)::placeholder,
 html.dark textarea:not(.print-page *)::placeholder {
-  color: #64748b;
+  color: #94a3b8;
+  opacity: 1;
 }
+html.dark input:-webkit-autofill:not(.print-page *),
+html.dark input:-webkit-autofill:hover:not(.print-page *),
+html.dark input:-webkit-autofill:focus:not(.print-page *) {
+  -webkit-text-fill-color: #f8fafc;
+  -webkit-box-shadow: 0 0 0 1000px #0b1322 inset;
+  caret-color: #60a5fa;
+  transition: background-color 5000s ease-in-out 0s;
+}
+html.dark select option {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
 html.dark .hover\:bg-blue-50:hover:not(.print-page):not(.print-page *),
+html.dark .hover\:bg-blue-50\/30:hover:not(.print-page):not(.print-page *),
+html.dark .hover\:bg-blue-50\/40:hover:not(.print-page):not(.print-page *),
+html.dark .hover\:bg-blue-50\/50:hover:not(.print-page):not(.print-page *),
 html.dark .hover\:bg-slate-50:hover:not(.print-page):not(.print-page *),
-html.dark .hover\:bg-slate-100:hover:not(.print-page):not(.print-page *) {
-  background-color: rgba(37, 99, 235, 0.18);
+html.dark .hover\:bg-slate-100:hover:not(.print-page):not(.print-page *),
+html.dark .hover\:bg-white:hover:not(.print-page):not(.print-page *) {
+  background-color: rgba(37, 99, 235, 0.2);
 }
 html.dark .hover\:bg-blue-100:hover:not(.print-page):not(.print-page *) {
-  background-color: rgba(37, 99, 235, 0.28);
+  background-color: rgba(37, 99, 235, 0.32);
+}
+html.dark .hover\:bg-amber-50:hover:not(.print-page):not(.print-page *),
+html.dark .hover\:bg-amber-100:hover:not(.print-page):not(.print-page *) {
+  background-color: rgba(180, 83, 9, 0.28);
+}
+html.dark .hover\:bg-rose-50:hover:not(.print-page):not(.print-page *),
+html.dark .hover\:bg-rose-100:hover:not(.print-page):not(.print-page *) {
+  background-color: rgba(190, 18, 60, 0.28);
+}
+html.dark .hover\:text-blue-900:hover:not(.print-page):not(.print-page *) {
+  color: #bfdbfe;
 }
 
 @media (prefers-reduced-motion: reduce) {

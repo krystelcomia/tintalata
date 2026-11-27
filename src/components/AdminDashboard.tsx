@@ -469,7 +469,7 @@ export function AdminDashboard({
     `w-full flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-bold transition-all duration-300 ${
       active
         ? 'bg-gradient-to-r from-blue-600 via-blue-600 to-sky-600 text-white shadow-md shadow-blue-600/25'
-        : 'text-slate-700 hover:bg-gradient-to-r hover:from-blue-100/90 hover:to-sky-100/70 hover:text-blue-900 hover:translate-x-0.5'
+        : 'text-slate-700 dark:text-slate-200 hover:bg-gradient-to-r hover:from-blue-100/90 hover:to-sky-100/70 dark:hover:from-blue-900/55 dark:hover:to-sky-900/45 hover:text-blue-900 dark:hover:text-white hover:translate-x-0.5'
     }`;
 
   const sidebarContent = (
@@ -791,26 +791,26 @@ export function AdminDashboard({
               )}
 
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
-                  <div className="border-b border-blue-200/70 bg-gradient-to-r from-blue-600/12 via-sky-500/10 to-indigo-500/10 px-5 py-3.5 flex items-center justify-between">
-                    <h3 className="text-sm font-extrabold text-blue-950">
+                <div className="rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-300 overflow-hidden">
+                  <div className="border-b border-blue-200/70 dark:border-blue-900/60 bg-gradient-to-r from-blue-600/12 via-sky-500/10 to-indigo-500/10 px-5 py-3.5 flex items-center justify-between">
+                    <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-200">
                       Kamakailang Nagparehistrong Mag-aaral
                     </h3>
                     <button
                       type="button"
                       onClick={() => setSection('students')}
-                      className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
+                      className="text-xs font-bold text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 hover:underline transition-colors duration-200"
                     >
                       Tingnan Lahat
                     </button>
                   </div>
-                  <div className="divide-y divide-blue-50">
+                  <div className="divide-y divide-blue-50 dark:divide-slate-800">
                     {students.slice(0, 6).map((s) => {
                       const badge = STATUS_BADGES[s.status] || STATUS_BADGES.active;
                       return (
                         <div
                           key={s.id}
-                          className="px-5 py-3 flex items-center justify-between gap-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 transition-colors duration-200"
+                          className="px-5 py-3 flex items-center justify-between gap-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 dark:hover:from-blue-950/60 dark:hover:to-sky-950/40 transition-colors duration-200"
                         >
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-slate-900 truncate">{s.fullName}</p>
@@ -834,24 +834,24 @@ export function AdminDashboard({
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
-                  <div className="border-b border-blue-200/70 bg-gradient-to-r from-sky-500/12 via-blue-600/10 to-indigo-500/10 px-5 py-3.5 flex items-center justify-between">
-                    <h3 className="text-sm font-extrabold text-blue-950">
+                <div className="rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-300 overflow-hidden">
+                  <div className="border-b border-blue-200/70 dark:border-blue-900/60 bg-gradient-to-r from-sky-500/12 via-blue-600/10 to-indigo-500/10 px-5 py-3.5 flex items-center justify-between">
+                    <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-200">
                       Kamakailang Aktibidad sa Seguridad
                     </h3>
                     <button
                       type="button"
                       onClick={() => setSection('audit')}
-                      className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
+                      className="text-xs font-bold text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 hover:underline transition-colors duration-200"
                     >
                       Tingnan Lahat
                     </button>
                   </div>
-                  <div className="divide-y divide-blue-50">
+                  <div className="divide-y divide-blue-50 dark:divide-slate-800">
                     {auditLogs.slice(0, 6).map((l) => (
                       <div
                         key={l.id}
-                        className="px-5 py-3 text-xs flex justify-between gap-3 hover:bg-gradient-to-r hover:from-blue-50/70 hover:to-sky-50/50 transition-colors duration-200"
+                        className="px-5 py-3 text-xs flex justify-between gap-3 hover:bg-gradient-to-r hover:from-blue-50/70 hover:to-sky-50/50 dark:hover:from-blue-950/60 dark:hover:to-sky-950/40 transition-colors duration-200"
                       >
                         <div>
                           <p className="font-bold text-slate-900">{l.details || l.action}</p>

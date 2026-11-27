@@ -89,6 +89,10 @@ export function App() {
         setUser(res.user);
         setStorage(res.storage);
         setPendingGrants(res.pendingGrantCount || 0);
+        const savedTheme = res.user.notificationSettings?.theme;
+        if (savedTheme === 'light' || savedTheme === 'dark') {
+          applyTheme(savedTheme);
+        }
       })
       .catch(() => {
         isLoggedInRef.current = false;
@@ -171,6 +175,10 @@ export function App() {
     setUser(nextUser);
     setStorage(nextStorage);
     setSupportStudent(null);
+    const savedTheme = nextUser.notificationSettings?.theme;
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      applyTheme(savedTheme);
+    }
     notify('success', message);
     navigate(nextUser.role === 'admin' ? '/admin' : '/dashboard', { replace: true });
   };

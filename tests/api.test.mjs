@@ -255,12 +255,27 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   const profileUpdate = await studentA.request('/api/auth/profile', {
     method: 'PATCH',
     body: JSON.stringify({
-      notificationSettings: { notifyAutoSave: false, defaultDownloadFormat: 'pdf' },
+      notificationSettings: { notifyAutoSave: false, defaultDownloadFormat: 'pdf', theme: 'dark' },
     }),
   });
   assert.equal(profileUpdate.status, 200);
   assert.equal(profileUpdate.body.user.notificationSettings.notifyAutoSave, false);
   assert.equal(profileUpdate.body.user.notificationSettings.defaultDownloadFormat, 'pdf');
+  assert.equal(profileUpdate.body.user.notificationSettings.theme, 'dark');
+
+  const meWithDarkTheme = await studentA.request('/api/auth/me');
+  assert.equal(meWithDarkTheme.status, 200);
+  assert.equal(meWithDarkTheme.body.user.notificationSettings.theme, 'dark');
+
+  const profileSwitchLight = await studentA.request('/api/auth/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      notificationSettings: { theme: 'light' },
+    }),
+  });
+  assert.equal(profileSwitchLight.status, 200);
+  assert.equal(profileSwitchLight.body.user.notificationSettings.theme, 'light');
+  assert.equal(profileSwitchLight.body.user.notificationSettings.notifyAutoSave, false);
 
   // 6. Soft Delete Folder -> Trash -> Restore -> Permanent Delete -> Storage reclaimed
   const delFolder = await studentA.request(`/api/folders/${folderId}`, { method: 'DELETE' });
