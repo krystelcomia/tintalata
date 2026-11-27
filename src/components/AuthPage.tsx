@@ -19,7 +19,7 @@ import {
   Printer,
   ShieldAlert,
   Lock,
-  Smartphone,
+  X,
 } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 import type { PasswordResetStatus, StorageSummary, User } from '../types';
@@ -123,6 +123,8 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   const [installPromptEvent, setInstallPromptEvent] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalledApp, setIsInstalledApp] = useState(false);
+  const [installBannerDismissed, setInstallBannerDismissed] = useState(false);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
 
   // Register fields
   const [fullName, setFullName] = useState('');
@@ -280,13 +282,17 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   }, []);
 
   const handleInstallApp = async () => {
-    if (!installPromptEvent) return;
+    if (!installPromptEvent) {
+      setShowInstallHelp((v) => !v);
+      return;
+    }
     await installPromptEvent.prompt();
     try {
       const choice = await installPromptEvent.userChoice;
       if (choice.outcome === 'accepted') {
         setInstallPromptEvent(null);
         setIsInstalledApp(true);
+        setShowInstallHelp(false);
       }
     } catch {
       // Ignore user prompt cancellation
@@ -872,7 +878,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 </button>
               </form>
 
-              <div className="pt-2 border-t border-blue-100 flex flex-col items-center gap-3 text-xs">
+              <div className="pt-2 border-t border-blue-100 flex flex-col items-center gap-2.5 text-xs">
                 <p className="text-slate-600">
                   Wala ka pang account ng mag-aaral?{' '}
                   <button
@@ -883,41 +889,19 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Magparehistro rito
                   </button>
                 </p>
-              </div>
-
-              <div className="rounded-2xl border border-blue-200 dark:border-blue-800/80 bg-blue-50/75 dark:bg-slate-800/75 p-3.5 text-xs space-y-2">
-                <div className="flex items-start gap-2.5">
-                  <div className="h-8 w-8 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0 mt-0.5">
-                    <Smartphone className="h-4 w-4" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-extrabold text-blue-950 dark:text-blue-100">
-                      Maaaring I-install ang Tintalata App
-                    </p>
-                    <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
-                      Maaari mong i-install ito bilang app sa iyong telepono o kompyuter. Kapag
-                      na-download na, mananatiling pareho ang lahat ng mga function at feature—maaari
-                      pa ring mag-log in ang mga Tagapangasiwa (Admin), at mananatiling nakakonekta
-                      ito sa kasalukuyang database.
-                    </p>
-                  </div>
-                </div>
-
-                {installPromptEvent ? (
+                {!isInstalledApp && installBannerDismissed && (
                   <button
                     type="button"
-                    onClick={() => void handleInstallApp()}
-                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-700 transition cursor-pointer"
+                    onClick={() => {
+                      setInstallBannerDismissed(false);
+                      setShowInstallHelp(false);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
                   >
                     <Download className="h-3.5 w-3.5" />
-                    I-install ang Tintalata App
+                    I-install ang Tintalata App sa device
                   </button>
-                ) : !isInstalledApp ? (
-                  <p className="text-[11px] text-blue-800 dark:text-blue-300 bg-white/80 dark:bg-slate-900/70 rounded-lg border border-blue-100 dark:border-blue-900/60 px-2.5 py-1.5">
-                    Tip: Buksan sa Chrome/Safari menu (⋮ o Share) at piliin ang{' '}
-                    <strong>Install app</strong> o <strong>Add to Home Screen</strong>.
-                  </p>
-                ) : null}
+                )}
               </div>
             </div>
           )}
@@ -1750,6 +1734,72 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
         <span>Tintalata Desktop Application • Bersyon 1.0</span>
         <span>Lahat ng pribadong file ay protektado at nakahiwalay bawat account.</span>
       </footer>
+
+      {/* App Install Banner (Blue theme aligned with Tintalata) */}
+      {mode === 'login' && !isInstalledApp && !installBannerDismissed && (
+        <aside
+          aria-label="I-install ang Tintalata App"
+          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:w-[420px] z-40 rounded-2xl bg-gradient-to-br from-[#0f2966] via-[#15398c] to-[#1d4ed8] dark:from-[#0a193d] dark:via-[#102966] dark:to-[#173680] text-white border border-blue-400/35 shadow-2xl shadow-blue-950/50 p-4 sm:p-5 backdrop-blur-md"
+        >
+          <div className="flex items-start gap-3.5">
+            <div className="h-12 w-12 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0 shadow-inner">
+              <TintalataLogo size="sm" />
+            </div>
+
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-block rounded-md bg-blue-500/45 border border-sky-300/30 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-sky-100">
+                  APP AVAILABLE
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setInstallBannerDismissed(true)}
+                  aria-label="Isara ang paalala sa pag-install"
+                  className="rounded-lg p-1 text-blue-200 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <h3 className="text-base font-extrabold leading-snug text-white">
+                Install Tintalata App
+              </h3>
+              <p className="text-xs leading-relaxed text-blue-100">
+                I-download sa iyong home screen o desktop. Pareho pa rin ang lahat ng mga function at
+                feature—maaari pa ring mag-log in ang Admin at mananatiling nakakonekta sa
+                kasalukuyang database.
+              </p>
+
+              {showInstallHelp && (
+                <div className="rounded-xl bg-blue-950/55 border border-sky-300/25 px-3 py-2 text-[11px] leading-relaxed text-sky-100">
+                  Sa Chrome/Edge, pindutin ang <strong>⋮ Menu</strong> o ang{' '}
+                  <strong>Install icon</strong> sa address bar → <strong>Install app</strong>. Sa
+                  iPhone/iPad Safari, pindutin ang <strong>Share</strong> →{' '}
+                  <strong>Add to Home Screen</strong>.
+                </div>
+              )}
+
+              <div className="pt-1.5 flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => void handleInstallApp()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 px-4 py-2 text-xs font-extrabold text-white shadow-md shadow-blue-950/30 transition-all cursor-pointer"
+                >
+                  <Download className="h-4 w-4" />
+                  Install App
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstallBannerDismissed(true)}
+                  className="text-xs font-semibold text-blue-200 hover:text-white transition-colors cursor-pointer"
+                >
+                  Later
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
