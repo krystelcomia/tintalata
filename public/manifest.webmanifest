@@ -1,16 +1,31 @@
 {
+  "id": "/",
   "name": "Tintalata — Patnugot ng Dokumento at Guhit",
   "short_name": "Tintalata",
+  "description": "Patnugot ng Dokumento at Guhit — Buong workspace para sa mga mag-aaral at tagapangasiwa.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#0f2966",
   "theme_color": "#1d4ed8",
   "icons": [
     {
-      "src": "/tintalata-logo.png",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

@@ -22,6 +22,11 @@ import {
   X,
 } from 'lucide-react';
 import { apiRequest } from '../utils/api';
+import {
+  getDeferredInstallPrompt,
+  isPwaStandalone,
+  promptDirectInstall,
+} from '../utils/pwaInstall';
 import type { PasswordResetStatus, StorageSummary, User } from '../types';
 import { TintalataLogo } from './TintalataLogo';
 import { PasswordInput } from './PasswordInput';
@@ -98,11 +103,6 @@ function PasswordRequirementsChecklist({
   );
 }
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
-}
-
 interface AuthPageProps {
   mode: AuthRouteMode;
   onNavigateMode: (next: AuthRouteMode) => void;
@@ -120,11 +120,10 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
-  const [installPromptEvent, setInstallPromptEvent] =
-    useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalledApp, setIsInstalledApp] = useState(false);
+  const [, setInstallReady] = useState(() => Boolean(getDeferredInstallPrompt()));
+  const [isInstalledApp, setIsInstalledApp] = useState(() => isPwaStandalone());
   const [installBannerDismissed, setInstallBannerDismissed] = useState(false);
-  const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [installingApp, setInstallingApp] = useState(false);
 
   // Register fields
   const [fullName, setFullName] = useState('');
@@ -260,42 +259,47 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
       .then((res) => setStorageMode(res.storageMode || ''))
       .catch(() => {});
 
-    const standalone =
-      window.matchMedia?.('(display-mode: standalone)').matches ||
-      Boolean((window.navigator as { standalone?: boolean }).standalone);
-    setIsInstalledApp(standalone);
+    setIsInstalledApp(isPwaStandalone());
+    setInstallReady(Boolean(getDeferredInstallPrompt()));
 
-    const onBeforeInstall = (ev: Event) => {
-      ev.preventDefault();
-      setInstallPromptEvent(ev as BeforeInstallPromptEvent);
+    const onInstallReady = () => {
+      setInstallReady(true);
+      setIsInstalledApp(false);
     };
     const onAppInstalled = () => {
-      setInstallPromptEvent(null);
+      setInstallReady(false);
       setIsInstalledApp(true);
     };
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('tintalata:install-ready', onInstallReady);
+    window.addEventListener('tintalata:app-installed', onAppInstalled);
     window.addEventListener('appinstalled', onAppInstalled);
     return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('tintalata:install-ready', onInstallReady);
+      window.removeEventListener('tintalata:app-installed', onAppInstalled);
       window.removeEventListener('appinstalled', onAppInstalled);
     };
   }, []);
 
   const handleInstallApp = async () => {
-    if (!installPromptEvent) {
-      setShowInstallHelp((v) => !v);
-      return;
-    }
-    await installPromptEvent.prompt();
+    if (installingApp) return;
+    setInstallingApp(true);
     try {
-      const choice = await installPromptEvent.userChoice;
-      if (choice.outcome === 'accepted') {
-        setInstallPromptEvent(null);
+      const outcome = await promptDirectInstall();
+      if (outcome === 'accepted') {
         setIsInstalledApp(true);
-        setShowInstallHelp(false);
+        setInstallReady(false);
+        onNotify('success', 'Inihahanda ang pag-install ng Tintalata App sa iyong device.');
+      } else if (outcome === 'unavailable') {
+        const isIos = /iPad|iPhone|iPod/i.test(navigator.userAgent);
+        onNotify(
+          'info',
+          isIos
+            ? 'Sa Safari sa iPhone/iPad, pindutin ang Share → Add to Home Screen upang ma-install.'
+            : 'Gamitin ang Install icon sa address bar ng Chrome o Edge upang mai-download ang app sa device.'
+        );
       }
-    } catch {
-      // Ignore user prompt cancellation
+    } finally {
+      setInstallingApp(false);
     }
   };
 
@@ -894,7 +898,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     type="button"
                     onClick={() => {
                       setInstallBannerDismissed(false);
-                      setShowInstallHelp(false);
+                      void handleInstallApp();
                     }}
                     className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
                   >
@@ -1770,23 +1774,15 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 kasalukuyang database.
               </p>
 
-              {showInstallHelp && (
-                <div className="rounded-xl bg-blue-950/55 border border-sky-300/25 px-3 py-2 text-[11px] leading-relaxed text-sky-100">
-                  Sa Chrome/Edge, pindutin ang <strong>⋮ Menu</strong> o ang{' '}
-                  <strong>Install icon</strong> sa address bar → <strong>Install app</strong>. Sa
-                  iPhone/iPad Safari, pindutin ang <strong>Share</strong> →{' '}
-                  <strong>Add to Home Screen</strong>.
-                </div>
-              )}
-
               <div className="pt-1.5 flex items-center gap-4">
                 <button
                   type="button"
+                  disabled={installingApp}
                   onClick={() => void handleInstallApp()}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 px-4 py-2 text-xs font-extrabold text-white shadow-md shadow-blue-950/30 transition-all cursor-pointer"
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 disabled:opacity-70 px-4 py-2 text-xs font-extrabold text-white shadow-md shadow-blue-950/30 transition-all cursor-pointer"
                 >
                   <Download className="h-4 w-4" />
-                  Install App
+                  {installingApp ? 'Ini-install...' : 'Install App'}
                 </button>
                 <button
                   type="button"

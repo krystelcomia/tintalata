@@ -17,11 +17,26 @@
             if (meta) meta.setAttribute('content', '#0f172a');
           }
         } catch (e) {}
+        try {
+          window.__tintalataInstallPrompt = null;
+          window.__tintalataInstalled = false;
+          window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            window.__tintalataInstallPrompt = e;
+            window.__tintalataInstalled = false;
+            window.dispatchEvent(new Event('tintalata:install-ready'));
+          });
+          window.addEventListener('appinstalled', function () {
+            window.__tintalataInstallPrompt = null;
+            window.__tintalataInstalled = true;
+            window.dispatchEvent(new Event('tintalata:app-installed'));
+          });
+        } catch (e) {}
       })();
     </script>
-    <link rel="icon" type="image/png" href="/tintalata-logo.png" />
-    <link rel="shortcut icon" type="image/png" href="/tintalata-logo.png" />
-    <link rel="apple-touch-icon" href="/tintalata-logo.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="shortcut icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512-maskable.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
