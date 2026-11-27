@@ -179,6 +179,38 @@ test('Tintalata full API, privacy, storage, trash, export, and admin authorizati
   const zipFiles = Object.keys(zip.files);
   assert.ok(zipFiles.some((name) => name.includes('Aking Sanaysay.docx')));
 
+  // 5a. Multi-page blank page breaks & resized image preservation in sanitization and exports
+  const multiPageDoc = await studentA.request('/api/documents', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'Maraming Pahina',
+      contentHtml:
+        '<p>Unang Pahina</p><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" style="display: block; margin-left: auto; margin-right: auto; max-width: 100%; width: 30%; height: auto;" /><hr class="page-break" data-page-break="true" /><p>Ikalawang Pahina</p>',
+    }),
+  });
+  assert.equal(multiPageDoc.status, 201);
+  const multiPageDocId = multiPageDoc.body.document.id;
+  assert.ok(multiPageDoc.body.document.contentHtml.includes('width: 30%'));
+  assert.ok(multiPageDoc.body.document.contentHtml.includes('data-page-break="true"'));
+
+  const multiDocx = await studentA.request(`/api/documents/${multiPageDocId}/download?format=docx`);
+  assert.equal(multiDocx.status, 200);
+  const multiDocxZip = await JSZip.loadAsync(multiDocx.body);
+  const multiDocxXml = await multiDocxZip.files['word/document.xml'].async('string');
+  assert.ok(multiDocxXml.includes('Unang Pahina'));
+  assert.ok(multiDocxXml.includes('Ikalawang Pahina'));
+  assert.ok(multiDocxXml.includes('w:type="page"'));
+
+  const multiPdf = await studentA.request(`/api/documents/${multiPageDocId}/download?format=pdf`);
+  assert.equal(multiPdf.status, 200);
+  const multiPdfText = multiPdf.body.toString('latin1');
+  assert.ok(multiPdfText.startsWith('%PDF-'));
+  const pdfPageMatches = multiPdfText.match(/\/Type\s*\/Page\b(?!s)/g) || [];
+  assert.ok(pdfPageMatches.length >= 2);
+
+  await studentA.request(`/api/documents/${multiPageDocId}`, { method: 'DELETE' });
+  await studentA.request(`/api/trash/documents/${multiPageDocId}`, { method: 'DELETE' });
+
   // 5b. Favorite, pageDoodle, sharing, and notification settings
   const favPatch = await studentA.request(`/api/documents/${docId}`, {
     method: 'PATCH',

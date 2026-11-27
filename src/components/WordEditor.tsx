@@ -30,7 +30,6 @@ import {
   Search,
   ChevronDown,
   Minus,
-  SeparatorHorizontal,
   Indent,
   Outdent,
   RemoveFormatting,
@@ -42,11 +41,11 @@ import {
   ZoomIn,
   ZoomOut,
   Check,
-  Maximize2,
   Star,
   Share2,
   Brush,
   Type,
+  FilePlus2,
 } from 'lucide-react';
 import type {
   DocumentFull,
@@ -132,9 +131,11 @@ export function WordEditor({
   registerSaveHandler,
 }: WordEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const pageSheetRef = useRef<HTMLDivElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedImageElRef = useRef<HTMLImageElement | null>(null);
   const latestSaveRef = useRef<() => Promise<boolean>>(async () => true);
 
   const [title, setTitle] = useState(doc.title);
@@ -183,10 +184,24 @@ export function WordEditor({
   const [linkText, setLinkText] = useState('');
   const [shareModalOpen, setShareModalOpen] = useState(false);
 
-  // Standalone Doodle Studio & Selected Inline Doodle
+  // Standalone Doodle Studio & Selected Inline Image/Doodle
   const [doodleStudioOpen, setDoodleStudioOpen] = useState(false);
   const [editingDoodle, setEditingDoodle] = useState<DoodleItem | null>(null);
-  const [selectedDoodleId, setSelectedDoodleId] = useState<string | null>(null);
+  const [selectedImageInfo, setSelectedImageInfo] = useState<{
+    doodleId: string | null;
+    alt: string;
+    widthPercent: number;
+    align: 'left' | 'center' | 'right';
+    rect: { left: number; top: number; width: number; height: number } | null;
+  } | null>(null);
+  const [requestedMinPages, setRequestedMinPages] = useState(1);
+  const [pageMetrics, setPageMetrics] = useState({
+    pageCount: 1,
+    firstPageFillPct: 0,
+    explicitBreaks: 0,
+  });
+
+  const singlePageHeight = pageSettings.orientation === 'landscape' ? 740 : 980;
 
   const renderOverlayCanvas = (
     strokes: DoodleStroke[],
@@ -222,10 +237,13 @@ export function WordEditor({
     setDrawMode(initialDrawMode && !readOnly);
     setRibbonTab(initialDrawMode && !readOnly ? 'draw' : 'home');
     setDirty(false);
-    setSelectedDoodleId(null);
+    selectedImageElRef.current = null;
+    setSelectedImageInfo(null);
+    setRequestedMinPages(1);
     if (editorRef.current) {
       editorRef.current.innerHTML = doc.contentHtml || '<p></p>';
       updateLiveCounts();
+      window.requestAnimationFrame(() => updatePageMetrics());
     }
   }, [doc.id]);
 
@@ -267,6 +285,87 @@ export function WordEditor({
     setCharCount(text.length);
     setWordCount(text ? text.split(/\s+/).filter(Boolean).length : 0);
   };
+
+  const computeImageRect = (imgEl: HTMLImageElement) => {
+    const sheet = pageSheetRef.current;
+    if (!sheet) return null;
+    const imgRect = imgEl.getBoundingClientRect();
+    const sheetRect = sheet.getBoundingClientRect();
+    const scale = Math.max(0.5, zoom / 100);
+    return {
+      left: (imgRect.left - sheetRect.left) / scale,
+      top: (imgRect.top - sheetRect.top) / scale,
+      width: imgRect.width / scale,
+      height: imgRect.height / scale,
+    };
+  };
+
+  const selectImageElement = (imgEl: HTMLImageElement | null) => {
+    if (!imgEl || !editorRef.current || !editorRef.current.contains(imgEl)) {
+      selectedImageElRef.current = null;
+      setSelectedImageInfo(null);
+      return;
+    }
+    selectedImageElRef.current = imgEl;
+    const dId = imgEl.getAttribute('data-doodle-id');
+    const styleWidth = imgEl.style.width || '';
+    const editorWidth = Math.max(200, editorRef.current.clientWidth || 688);
+    let pct = 55;
+    if (styleWidth.endsWith('%')) {
+      pct = Number(styleWidth.slice(0, -1)) || 55;
+    } else if (styleWidth.endsWith('px')) {
+      pct = (Number(styleWidth.slice(0, -2)) / editorWidth) * 100;
+    } else if (imgEl.clientWidth > 0) {
+      pct = (imgEl.clientWidth / editorWidth) * 100;
+    }
+    const clampedPct = Math.max(15, Math.min(100, Math.round(pct)));
+
+    let align: 'left' | 'center' | 'right' = 'left';
+    if (imgEl.style.marginLeft === 'auto' && imgEl.style.marginRight === 'auto') {
+      align = 'center';
+    } else if (imgEl.style.marginLeft === 'auto') {
+      align = 'right';
+    }
+
+    setSelectedImageInfo({
+      doodleId: dId || null,
+      alt: imgEl.alt || 'Larawan',
+      widthPercent: clampedPct,
+      align,
+      rect: computeImageRect(imgEl),
+    });
+  };
+
+  const updatePageMetrics = (minPagesOverride?: number) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const explicitBreaks = el.querySelectorAll('hr.page-break').length;
+    const usablePageHeight = Math.max(520, singlePageHeight - 130);
+    let firstPageContentH = el.scrollHeight;
+    const firstBreak = el.querySelector('hr.page-break') as HTMLElement | null;
+    if (firstBreak) {
+      firstPageContentH = Math.max(firstBreak.offsetTop, usablePageHeight);
+    }
+    const fillPct = Math.min(100, Math.round((firstPageContentH / usablePageHeight) * 100));
+    const minPages = minPagesOverride ?? requestedMinPages;
+    const overflowPages = Math.max(1, Math.ceil(el.scrollHeight / usablePageHeight));
+    const pageCount = Math.max(1, explicitBreaks + 1, minPages, overflowPages);
+    setPageMetrics({ pageCount, firstPageFillPct: fillPct, explicitBreaks });
+
+    if (selectedImageElRef.current && el.contains(selectedImageElRef.current)) {
+      selectImageElement(selectedImageElRef.current);
+    }
+  };
+
+  useEffect(() => {
+    updatePageMetrics();
+  }, [
+    pageSettings.orientation,
+    pageSettings.margins,
+    pageSettings.lineHeight,
+    zoom,
+    requestedMinPages,
+  ]);
 
   const saveSelection = () => {
     const sel = window.getSelection();
@@ -413,9 +512,20 @@ export function WordEditor({
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
+        const uid = `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         insertHtmlAtCursor(
-          `<p><img src="${reader.result}" alt="${file.name.replace(/"/g, '')}" style="max-width: 100%; width: 460px; border-radius: 8px;" /></p>`
+          `<p><img src="${reader.result}" data-img-uid="${uid}" alt="${file.name.replace(/"/g, '')}" style="display: block; margin-left: auto; margin-right: auto; max-width: 100%; width: 55%; height: auto; border-radius: 8px;" /></p><p><br/></p>`
         );
+        window.requestAnimationFrame(() => {
+          const inserted = editorRef.current?.querySelector(
+            `img[data-img-uid="${uid}"]`
+          ) as HTMLImageElement | null;
+          if (inserted) {
+            inserted.removeAttribute('data-img-uid');
+            selectImageElement(inserted);
+          }
+          updatePageMetrics();
+        });
       }
     };
     reader.readAsDataURL(file);
@@ -435,20 +545,70 @@ export function WordEditor({
         imgEl.alt = doodle.title;
       } else {
         insertHtmlAtCursor(
-          `<p><img src="${doodle.dataUrl}" data-doodle-id="${doodle.id}" alt="${doodle.title.replace(/"/g, '')}" style="max-width: 100%; width: 520px;" /></p>`
+          `<p><img src="${doodle.dataUrl}" data-doodle-id="${doodle.id}" alt="${doodle.title.replace(/"/g, '')}" style="display: block; margin-left: auto; margin-right: auto; max-width: 100%; width: 70%; height: auto;" /></p>`
         );
       }
     } else {
       nextDoodles = [...doodles, doodle];
       insertHtmlAtCursor(
-        `<p><img src="${doodle.dataUrl}" data-doodle-id="${doodle.id}" alt="${doodle.title.replace(/"/g, '')}" style="max-width: 100%; width: 520px;" /></p><p><br/></p>`
+        `<p><img src="${doodle.dataUrl}" data-doodle-id="${doodle.id}" alt="${doodle.title.replace(/"/g, '')}" style="display: block; margin-left: auto; margin-right: auto; max-width: 100%; width: 70%; height: auto;" /></p><p><br/></p>`
       );
     }
     setDoodles(nextDoodles);
     setDoodleStudioOpen(false);
     setEditingDoodle(null);
-    setSelectedDoodleId(doodle.id);
+    window.requestAnimationFrame(() => {
+      const targetImg = editorRef.current?.querySelector(
+        `img[data-doodle-id="${doodle.id}"]`
+      ) as HTMLImageElement | null;
+      if (targetImg) selectImageElement(targetImg);
+      updatePageMetrics();
+    });
     markUnsaved();
+  };
+
+  const handleAddBlankPage = (fromEnd = false) => {
+    if (readOnly || !editorRef.current) return;
+    const el = editorRef.current;
+    const markerId = `pb-${Date.now()}`;
+    const breakHtml = `<hr class="page-break" data-page-break="true" /><p data-new-page="${markerId}"><br/></p>`;
+
+    if (fromEnd) {
+      el.focus();
+      el.insertAdjacentHTML('beforeend', breakHtml);
+    } else {
+      restoreSelection();
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) {
+        el.insertAdjacentHTML('beforeend', breakHtml);
+      } else {
+        window.document.execCommand('insertHTML', false, breakHtml);
+      }
+    }
+
+    const nextExplicitCount = el.querySelectorAll('hr.page-break').length;
+    const nextMinPages = Math.max(requestedMinPages + (fromEnd ? 0 : 0), nextExplicitCount + 1);
+    setRequestedMinPages(nextMinPages);
+
+    window.requestAnimationFrame(() => {
+      const targetPara = el.querySelector(`p[data-new-page="${markerId}"]`) as HTMLElement | null;
+      if (targetPara) {
+        targetPara.removeAttribute('data-new-page');
+        const range = window.document.createRange();
+        range.setStart(targetPara, 0);
+        range.collapse(true);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        savedRangeRef.current = range.cloneRange();
+        targetPara.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      updateLiveCounts();
+      updatePageMetrics(nextMinPages);
+    });
+
+    markUnsaved();
+    onNotify('success', 'Nagdagdag ng bagong blangkong pahina.');
   };
 
   // Direct On-Document Drawing Pointer Handlers
@@ -543,32 +703,87 @@ export function WordEditor({
     saveSelection();
     const target = e.target as HTMLElement;
     if (target.tagName === 'IMG') {
-      const dId = target.getAttribute('data-doodle-id');
-      setSelectedDoodleId(dId || null);
+      selectImageElement(target as HTMLImageElement);
     } else {
-      setSelectedDoodleId(null);
+      selectImageElement(null);
     }
   };
 
-  const resizeSelectedDoodle = (widthPercent: string) => {
-    if (!editorRef.current || !selectedDoodleId) return;
-    const imgEl = editorRef.current.querySelector(
-      `img[data-doodle-id="${selectedDoodleId}"]`
-    ) as HTMLImageElement | null;
-    if (imgEl) {
-      imgEl.style.width = widthPercent;
-      markUnsaved();
-    }
-  };
-
-  const removeSelectedDoodle = () => {
-    if (!editorRef.current || !selectedDoodleId || readOnly) return;
-    const imgEl = editorRef.current.querySelector(`img[data-doodle-id="${selectedDoodleId}"]`);
-    imgEl?.remove();
-    const nextDoodles = doodles.filter((d) => d.id !== selectedDoodleId);
-    setDoodles(nextDoodles);
-    setSelectedDoodleId(null);
+  const resizeSelectedImage = (widthPercent: number) => {
+    const imgEl = selectedImageElRef.current;
+    if (!imgEl || !editorRef.current?.contains(imgEl) || readOnly) return;
+    const clamped = Math.max(15, Math.min(100, Math.round(widthPercent)));
+    imgEl.style.width = `${clamped}%`;
+    imgEl.style.maxWidth = '100%';
+    imgEl.style.height = 'auto';
+    selectImageElement(imgEl);
+    window.requestAnimationFrame(() => updatePageMetrics());
     markUnsaved();
+  };
+
+  const alignSelectedImage = (align: 'left' | 'center' | 'right') => {
+    const imgEl = selectedImageElRef.current;
+    if (!imgEl || !editorRef.current?.contains(imgEl) || readOnly) return;
+    imgEl.style.display = 'block';
+    if (align === 'center') {
+      imgEl.style.marginLeft = 'auto';
+      imgEl.style.marginRight = 'auto';
+    } else if (align === 'right') {
+      imgEl.style.marginLeft = 'auto';
+      imgEl.style.marginRight = '0';
+    } else {
+      imgEl.style.marginLeft = '0';
+      imgEl.style.marginRight = 'auto';
+    }
+    selectImageElement(imgEl);
+    markUnsaved();
+  };
+
+  const removeSelectedImage = () => {
+    const imgEl = selectedImageElRef.current;
+    if (!imgEl || readOnly) return;
+    const dId = imgEl.getAttribute('data-doodle-id');
+    imgEl.remove();
+    if (dId) {
+      setDoodles((prev) => prev.filter((d) => d.id !== dId));
+    }
+    selectImageElement(null);
+    updateLiveCounts();
+    window.requestAnimationFrame(() => updatePageMetrics());
+    markUnsaved();
+  };
+
+  const handleStartImageDragResize = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const imgEl = selectedImageElRef.current;
+    const editorEl = editorRef.current;
+    if (!imgEl || !editorEl || readOnly) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const scale = Math.max(0.5, zoom / 100);
+    const startImgWidthPx = imgEl.getBoundingClientRect().width / scale;
+    const editorWidthPx = Math.max(200, editorEl.clientWidth || 688);
+
+    const onMove = (ev: PointerEvent) => {
+      const deltaX = (ev.clientX - startX) / scale;
+      const nextWidthPx = Math.max(60, Math.min(editorWidthPx, startImgWidthPx + deltaX));
+      const pct = Math.max(15, Math.min(100, Math.round((nextWidthPx / editorWidthPx) * 100)));
+      imgEl.style.width = `${pct}%`;
+      imgEl.style.maxWidth = '100%';
+      imgEl.style.height = 'auto';
+      selectImageElement(imgEl);
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.requestAnimationFrame(() => updatePageMetrics());
+      markUnsaved();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const handleReplaceAll = () => {
@@ -631,7 +846,10 @@ export function WordEditor({
         ? 'px-12 py-12 sm:px-24 sm:py-16'
         : 'px-8 py-10 sm:px-16 sm:py-14';
 
-  const selectedDoodleObj = doodles.find((d) => d.id === selectedDoodleId) || null;
+  const selectedDoodleObj =
+    selectedImageInfo?.doodleId
+      ? doodles.find((d) => d.id === selectedImageInfo.doodleId) || null
+      : null;
 
   const overlayTools: Array<{ id: DrawingTool; label: string; icon: JSX.Element }> = [
     { id: 'pen', label: 'Panulat', icon: <PenTool className="h-4 w-4" /> },
@@ -1277,11 +1495,11 @@ export function WordEditor({
 
                 <button
                   type="button"
-                  onClick={() => insertHtmlAtCursor('<hr class="page-break" /><p><br/></p>')}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-blue-50"
+                  onClick={() => handleAddBlankPage(false)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 transition-colors duration-200 cursor-pointer"
                 >
-                  <SeparatorHorizontal className="h-4 w-4 text-blue-600" />
-                  Hati ng Pahina
+                  <FilePlus2 className="h-4 w-4 text-blue-600" />
+                  Bagong Blangkong Pahina
                 </button>
 
                 <button
@@ -1465,6 +1683,15 @@ export function WordEditor({
                     </button>
                   ))}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleAddBlankPage(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 font-bold text-blue-800 hover:bg-blue-600 hover:text-white transition-all duration-200 cursor-pointer"
+                >
+                  <FilePlus2 className="h-3.5 w-3.5" />
+                  Magdagdag ng Blangkong Pahina
+                </button>
               </div>
             )}
           </div>
@@ -1521,49 +1748,104 @@ export function WordEditor({
             </div>
           )}
 
-          {selectedDoodleObj && (
-            <div className="border-t border-blue-200 bg-blue-600 px-4 py-2 text-white flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2 font-semibold">
-                <PenTool className="h-4 w-4" />
-                <span>Napiling Guhit: &ldquo;{selectedDoodleObj.title}&rdquo;</span>
+          {selectedImageInfo && (
+            <div className="border-t border-blue-300 bg-gradient-to-r from-blue-700 via-blue-600 to-sky-600 px-4 py-2 text-white flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+              <div className="flex items-center gap-2 font-semibold min-w-0">
+                <ImageIcon className="h-4 w-4 shrink-0" />
+                <span className="truncate max-w-[180px]">
+                  {selectedDoodleObj
+                    ? `Guhit: "${selectedDoodleObj.title}"`
+                    : `Napiling Larawan: ${selectedImageInfo.alt}`}
+                </span>
+                <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-extrabold">
+                  {selectedImageInfo.widthPercent}%
+                </span>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5">
+
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedDoodleObj && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDoodle(selectedDoodleObj);
+                      setDoodleStudioOpen(true);
+                    }}
+                    className="rounded-lg bg-white px-3 py-1 font-bold text-blue-700 hover:bg-blue-50 cursor-pointer"
+                  >
+                    I-edit ang Guhit
+                  </button>
+                )}
+
+                <div className="flex items-center gap-1.5 bg-white/15 rounded-lg px-2.5 py-1">
+                  <span className="text-[11px] font-bold">Laki:</span>
+                  <input
+                    type="range"
+                    min={15}
+                    max={100}
+                    value={selectedImageInfo.widthPercent}
+                    onChange={(e) => resizeSelectedImage(Number(e.target.value))}
+                    aria-label="Laki ng Larawan"
+                    className="w-24 accent-white cursor-pointer"
+                  />
+                </div>
+
+                {[
+                  { pct: 25, label: '25%' },
+                  { pct: 50, label: '50%' },
+                  { pct: 75, label: '75%' },
+                  { pct: 100, label: '100%' },
+                ].map((preset) => (
+                  <button
+                    key={preset.pct}
+                    type="button"
+                    onClick={() => resizeSelectedImage(preset.pct)}
+                    className={`rounded-lg px-2 py-1 font-bold transition cursor-pointer ${
+                      Math.abs(selectedImageInfo.widthPercent - preset.pct) <= 3
+                        ? 'bg-white text-blue-700'
+                        : 'bg-white/15 text-white hover:bg-white/25'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+
+                <div className="flex items-center gap-1 bg-white/15 rounded-lg p-0.5">
+                  <button
+                    type="button"
+                    title="Ihanay sa Kaliwa"
+                    onClick={() => alignSelectedImage('left')}
+                    className={`rounded p-1 cursor-pointer ${
+                      selectedImageInfo.align === 'left' ? 'bg-white text-blue-700' : 'hover:bg-white/20'
+                    }`}
+                  >
+                    <AlignLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Igitna"
+                    onClick={() => alignSelectedImage('center')}
+                    className={`rounded p-1 cursor-pointer ${
+                      selectedImageInfo.align === 'center' ? 'bg-white text-blue-700' : 'hover:bg-white/20'
+                    }`}
+                  >
+                    <AlignCenter className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Ihanay sa Kanan"
+                    onClick={() => alignSelectedImage('right')}
+                    className={`rounded p-1 cursor-pointer ${
+                      selectedImageInfo.align === 'right' ? 'bg-white text-blue-700' : 'hover:bg-white/20'
+                    }`}
+                  >
+                    <AlignRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => {
-                    setEditingDoodle(selectedDoodleObj);
-                    setDoodleStudioOpen(true);
-                  }}
-                  className="rounded-lg bg-white px-3 py-1 font-bold text-blue-700 hover:bg-blue-50"
-                >
-                  I-edit ang Guhit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => resizeSelectedDoodle('40%')}
-                  className="rounded-lg bg-white/15 px-2.5 py-1 font-semibold hover:bg-white/25"
-                >
-                  Maliit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => resizeSelectedDoodle('70%')}
-                  className="rounded-lg bg-white/15 px-2.5 py-1 font-semibold hover:bg-white/25"
-                >
-                  Katamtaman
-                </button>
-                <button
-                  type="button"
-                  onClick={() => resizeSelectedDoodle('100%')}
-                  className="inline-flex items-center gap-1 rounded-lg bg-white/15 px-2.5 py-1 font-semibold hover:bg-white/25"
-                >
-                  <Maximize2 className="h-3 w-3" />
-                  Malaki
-                </button>
-                <button
-                  type="button"
-                  onClick={removeSelectedDoodle}
-                  className="rounded-lg bg-rose-500 px-2.5 py-1 font-semibold text-white hover:bg-rose-600"
+                  onClick={removeSelectedImage}
+                  className="rounded-lg bg-rose-500 px-2.5 py-1 font-semibold text-white hover:bg-rose-600 cursor-pointer"
                 >
                   Alisin
                 </button>
@@ -1578,11 +1860,13 @@ export function WordEditor({
       )}
 
       {/* Document Page Canvas with Direct Freehand Drawing Overlay */}
-      <div className="flex-1 overflow-auto px-3 sm:px-8 py-6 sm:py-10">
+      <div className="flex-1 overflow-auto px-3 sm:px-8 py-6 sm:py-10 space-y-5">
         <div
+          ref={pageSheetRef}
           className={`print-page relative mx-auto ${pageWidthClass} rounded-xl border border-blue-200/80 shadow-xl transition-transform origin-top overflow-hidden`}
           style={{
             backgroundColor: pageSettings.pageColor || '#ffffff',
+            minHeight: `${pageMetrics.pageCount * singlePageHeight}px`,
             transform: `scale(${zoom / 100})`,
           }}
         >
@@ -1595,14 +1879,54 @@ export function WordEditor({
               onInput={() => {
                 saveSelection();
                 updateLiveCounts();
+                updatePageMetrics();
                 markUnsaved();
               }}
-              onKeyUp={saveSelection}
+              onKeyUp={() => {
+                saveSelection();
+                updatePageMetrics();
+              }}
               onClick={handleEditorClick}
               className="tintalata-prose"
               style={{ lineHeight: pageSettings.lineHeight || '1.6' }}
             />
           </div>
+
+          {/* Visual Page Boundary Guides across Multi-Page Sheets */}
+          {pageMetrics.pageCount > 1 &&
+            Array.from({ length: pageMetrics.pageCount - 1 }).map((_, idx) => (
+              <div
+                key={idx}
+                aria-hidden="true"
+                className="no-print pointer-events-none absolute left-0 right-0 border-t border-dashed border-blue-200 flex justify-end pr-4"
+                style={{ top: `${(idx + 1) * singlePageHeight}px` }}
+              >
+                <span className="-mt-3 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-blue-700">
+                  Pahina {idx + 2}
+                </span>
+              </div>
+            ))}
+
+          {/* Interactive Corner Drag Handle Overlay for Selected Image */}
+          {!readOnly && !drawMode && selectedImageInfo?.rect && (
+            <div
+              aria-hidden="true"
+              className="no-print pointer-events-none absolute z-30 rounded-lg border-2 border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.18)]"
+              style={{
+                left: `${selectedImageInfo.rect.left}px`,
+                top: `${selectedImageInfo.rect.top}px`,
+                width: `${selectedImageInfo.rect.width}px`,
+                height: `${selectedImageInfo.rect.height}px`,
+              }}
+            >
+              <button
+                type="button"
+                onPointerDown={handleStartImageDragResize}
+                title="Hilahin upang baguhin ang laki ng larawan"
+                className="pointer-events-auto absolute -right-2 -bottom-2 h-4 w-4 rounded-sm border-2 border-white bg-blue-600 shadow cursor-nwse-resize hover:scale-110 transition-transform"
+              />
+            </div>
+          )}
 
           {/* Transparent On-Page Freehand Drawing Layer */}
           <canvas
@@ -1613,13 +1937,43 @@ export function WordEditor({
             onPointerMove={handleOverlayPointerMove}
             onPointerUp={finishOverlayStroke}
             onPointerCancel={finishOverlayStroke}
-            className={`absolute inset-0 w-full h-full ${
+            style={{ height: `${singlePageHeight}px` }}
+            className={`absolute top-0 left-0 w-full ${
               drawMode
                 ? 'pointer-events-auto cursor-crosshair touch-none z-20 ring-2 ring-inset ring-blue-500/40'
                 : 'pointer-events-none z-10'
             }`}
           />
         </div>
+
+        {/* Bottom Sheet Pagination Bar */}
+        {!readOnly && (
+          <div className="no-print mx-auto max-w-[816px] flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-200/80 bg-white/90 px-4 py-3 text-xs shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-slate-600">
+              <span className="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 font-bold text-blue-800">
+                Kabuuang Pahina: {pageMetrics.pageCount}
+              </span>
+              {pageMetrics.firstPageFillPct >= 85 && pageMetrics.explicitBreaks === 0 ? (
+                <span className="font-semibold text-blue-800">
+                  Puno na ang unang pahina — maaari ka nang magdagdag ng bagong blangkong pahina.
+                </span>
+              ) : (
+                <span className="text-slate-500">
+                  Pindutin ang larawan upang ayusin ang laki nito, o magdagdag ng blangkong pahina.
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleAddBlankPage(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl tintalata-blue-btn px-3.5 py-2 text-xs font-bold text-white shadow-sm cursor-pointer"
+            >
+              <FilePlus2 className="h-3.5 w-3.5" />
+              + Magdagdag ng Blangkong Pahina
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bottom Status Bar */}

@@ -7,6 +7,7 @@ import {
   HeadingLevel,
   ImageRun,
   Packer,
+  PageBreak,
   Paragraph,
   Table,
   TableCell,
@@ -55,6 +56,22 @@ function parsePageDoodle(doc) {
   return null;
 }
 
+function extractImageWidthRatio(attrs = '') {
+  const pctMatch = /width\s*:\s*(\d+(?:\.\d+)?)%/i.exec(attrs);
+  if (pctMatch) {
+    return Math.max(0.15, Math.min(1, Number(pctMatch[1]) / 100));
+  }
+  const pxStyleMatch = /width\s*:\s*(\d+(?:\.\d+)?)px/i.exec(attrs);
+  if (pxStyleMatch) {
+    return Math.max(0.15, Math.min(1, Number(pxStyleMatch[1]) / 688));
+  }
+  const widthAttrMatch = /\bwidth\s*=\s*["']?(\d+)/i.exec(attrs);
+  if (widthAttrMatch) {
+    return Math.max(0.15, Math.min(1, Number(widthAttrMatch[1]) / 688));
+  }
+  return 0.65;
+}
+
 /**
  * Lightweight deterministic HTML block parser for DOCX and PDF export.
  */
@@ -85,13 +102,16 @@ function parseHtmlBlocks(html) {
       const attrs = match[4] || '';
       const srcM = /src\s*=\s*["']([^"']+)["']/i.exec(attrs);
       if (srcM?.[1]) {
-        blocks.push({ kind: 'img', src: srcM[1] });
+        blocks.push({ kind: 'img', src: srcM[1], widthRatio: extractImageWidthRatio(attrs) });
       }
       continue;
     }
 
     if (match[0].toLowerCase().startsWith('<hr')) {
-      blocks.push({ kind: 'hr' });
+      const hrAttrs = match[5] || '';
+      const isPageBreak =
+        /page-break/i.test(hrAttrs) || /data-page-break/i.test(hrAttrs);
+      blocks.push({ kind: isPageBreak ? 'page_break' : 'hr' });
       continue;
     }
 
@@ -120,11 +140,12 @@ function parseHtmlBlocks(html) {
     }
 
     // Check for inline images inside paragraphs/divs
-    const imgInBlockRe = /<img\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    const imgInBlockRe = /<img\b([^>]*?)src\s*=\s*["']([^"']+)["']([^>]*?)>/gi;
     let imgMatch;
     const inlineImages = [];
     while ((imgMatch = imgInBlockRe.exec(inner)) !== null) {
-      inlineImages.push(imgMatch[1]);
+      const allAttrs = `${imgMatch[1] || ''} ${imgMatch[3] || ''}`;
+      inlineImages.push({ src: imgMatch[2], widthRatio: extractImageWidthRatio(allAttrs) });
     }
 
     const alignMatch = /text-align\s*:\s*(left|center|right|justify)/i.exec(attrs);
@@ -134,8 +155,8 @@ function parseHtmlBlocks(html) {
     if (runs.length > 0) {
       blocks.push({ kind: tag, runs, align });
     }
-    for (const src of inlineImages) {
-      blocks.push({ kind: 'img', src });
+    for (const imgObj of inlineImages) {
+      blocks.push({ kind: 'img', src: imgObj.src, widthRatio: imgObj.widthRatio });
     }
   }
 
@@ -207,6 +228,11 @@ export async function buildDocxBuffer(doc) {
   };
 
   for (const block of blocks) {
+    if (block.kind === 'page_break') {
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+      continue;
+    }
+
     if (block.kind === 'hr') {
       children.push(
         new Paragraph({
@@ -222,6 +248,8 @@ export async function buildDocxBuffer(doc) {
     if (block.kind === 'img') {
       const parsedImg = parseDataUrlImage(block.src);
       if (parsedImg && (parsedImg.type === 'png' || parsedImg.type === 'jpg' || parsedImg.type === 'gif')) {
+        const targetW = Math.round(520 * (block.widthRatio || 0.65));
+        const targetH = Math.round(targetW * 0.56);
         children.push(
           new Paragraph({
             alignment: AlignmentType.CENTER,
@@ -229,7 +257,7 @@ export async function buildDocxBuffer(doc) {
               new ImageRun({
                 type: parsedImg.type,
                 data: parsedImg.buffer,
-                transformation: { width: 440, height: 245 },
+                transformation: { width: targetW, height: targetH },
               }),
             ],
           })
@@ -398,6 +426,11 @@ export function buildPdfBuffer(doc) {
 
     const blocks = parseHtmlBlocks(doc.content_html || '');
     for (const block of blocks) {
+      if (block.kind === 'page_break') {
+        pdf.addPage();
+        continue;
+      }
+
       if (block.kind === 'hr') {
         pdf
           .moveTo(marginPts, pdf.y + 4)
@@ -414,8 +447,9 @@ export function buildPdfBuffer(doc) {
         if (parsedImg && (parsedImg.type === 'png' || parsedImg.type === 'jpg')) {
           try {
             if (pdf.y > pdf.page.height - 220) pdf.addPage();
+            const usableW = (pdf.page.width - marginPts * 2) * (block.widthRatio || 0.65);
             pdf.image(parsedImg.buffer, {
-              fit: [pdf.page.width - marginPts * 2, 240],
+              fit: [Math.max(90, usableW), 320],
               align: 'center',
             });
             pdf.moveDown(0.6);
@@ -549,6 +583,7 @@ export function buildWordDocHtml(doc) {
   td, th { border: 1px solid #cbd5e1; padding: 6px 10px; vertical-align: top; }
   img { max-width: 100%; height: auto; }
   blockquote { border-left: 4px solid #2563eb; margin: 12px 0; padding-left: 12px; color: #334155; }
+  hr.page-break { border: none; page-break-after: always; break-after: page; height: 0; margin: 0; }
 </style>
 </head>
 <body>
@@ -578,6 +613,7 @@ export function buildStandaloneHtml(doc) {
   td, th { border: 1px solid #cbd5e1; padding: 8px 10px; }
   img { max-width: 100%; height: auto; }
   blockquote { border-left: 4px solid #2563eb; margin: 12px 0; padding: 8px 14px; background: #f8fafc; }
+  hr.page-break { border: none; border-top: 2px dashed #93c5fd; margin: 28px 0; page-break-after: always; break-after: page; }
 </style>
 </head>
 <body>
