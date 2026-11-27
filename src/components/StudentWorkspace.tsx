@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   ChevronRight,
   PenTool,
-  ArrowLeft,
   Menu,
   User as UserIcon,
   X,
@@ -855,8 +854,8 @@ export function StudentWorkspace({
   };
 
   const sidebarContent = (
-    <div className="flex h-full flex-col tintalata-sidebar-bg border-r border-blue-200/80">
-      <div className="bg-white border-b border-blue-200/80 px-4 py-4 min-h-[76px] flex flex-col justify-center text-slate-900">
+    <div className="flex h-full flex-col tintalata-sidebar-bg border-r border-blue-200/80 dark:border-blue-900/60">
+      <div className="tintalata-header-bar px-4 py-3 min-h-[76px] lg:h-[76px] flex flex-col justify-center text-slate-900">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <TintalataLogo size="sm" />
@@ -879,7 +878,7 @@ export function StudentWorkspace({
       </div>
 
       {!readOnly && (
-        <div className="p-3 grid grid-cols-2 gap-2 border-b border-blue-100/80">
+        <div className="p-3 grid grid-cols-2 gap-2 border-b border-blue-100/80 dark:border-blue-900/50">
           <button
             type="button"
             onClick={() =>
@@ -895,7 +894,7 @@ export function StudentWorkspace({
             onClick={() =>
               void handleCreateDocument(navSection === 'folder' ? selectedFolderId : null, true)
             }
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-gradient-to-r from-sky-50 to-blue-50 px-2.5 py-2.5 text-xs font-bold text-blue-800 hover:from-blue-600 hover:to-sky-600 hover:text-white hover:border-blue-600 transition-all duration-300 cursor-pointer"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 dark:border-blue-800/80 bg-gradient-to-r from-sky-50 to-blue-50 dark:from-slate-800 dark:to-blue-950/60 px-2.5 py-2.5 text-xs font-bold text-blue-800 dark:text-blue-200 hover:from-blue-600 hover:to-sky-600 hover:text-white hover:border-blue-600 transition-all duration-300 cursor-pointer"
           >
             <Brush className="h-4 w-4" />
             <span>Guhit</span>
@@ -1150,7 +1149,7 @@ export function StudentWorkspace({
       </div>
 
       {/* Bottom Profile & Course/Section Card */}
-      <div className="border-t border-blue-200/80 p-3.5 bg-gradient-to-r from-blue-100/50 to-sky-100/50">
+      <div className="border-t border-blue-200/80 dark:border-blue-900/60 p-3.5 bg-gradient-to-r from-blue-100/50 to-sky-100/50 dark:from-slate-900/90 dark:to-slate-950/95">
         {supportContext ? (
           <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs space-y-2">
             <div>
@@ -1260,45 +1259,34 @@ export function StudentWorkspace({
           </div>
         ) : activeDoc ? (
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="no-print bg-blue-50/90 border-b border-blue-100 px-4 py-1.5 flex items-center justify-between text-xs">
-              <button
-                type="button"
-                onClick={() =>
-                  attemptLeaveEditor(() => {
-                    setActiveDoc(null);
-                    setEditorHasUnsaved(false);
-                  })
-                }
-                className="inline-flex items-center gap-1.5 font-bold text-blue-700 hover:text-blue-900"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Bumalik sa Workspace
-              </button>
-              <span className="text-[11px] text-slate-500">
-                {activeDoc.isNewDraft
+            <WordEditor
+              document={activeDoc}
+              folders={folders}
+              initialDrawMode={openInDrawMode}
+              readOnly={readOnly || activeDoc.sharedRole === 'read'}
+              isOwner={!activeDoc.sharedRole}
+              supportStudentId={supportStudentId}
+              docStatusText={
+                activeDoc.isNewDraft
                   ? 'Bagong draft • Hindi pa nai-save'
                   : editorHasUnsaved
                     ? 'May mga hindi pa nai-save na pagbabago'
-                    : `Huling binago: ${formatDateTimeTL(activeDoc.updatedAt)}`}
-              </span>
-            </div>
-            <div className="flex-1 min-h-0">
-              <WordEditor
-                document={activeDoc}
-                folders={folders}
-                initialDrawMode={openInDrawMode}
-                readOnly={readOnly || activeDoc.sharedRole === 'read'}
-                isOwner={!activeDoc.sharedRole}
-                supportStudentId={supportStudentId}
-                onOpenSidebar={() => setSidebarOpen(true)}
-                onSaveDocument={handleSaveDocument}
-                onDeleteDocument={handleDeleteDocument}
-                onNotify={onNotify}
-                onSharesChanged={() => void refreshWorkspace()}
-                onDirtyChange={setEditorHasUnsaved}
-                registerSaveHandler={registerEditorSaveHandler}
-              />
-            </div>
+                    : `Huling binago: ${formatDateTimeTL(activeDoc.updatedAt)}`
+              }
+              onBackToWorkspace={() =>
+                attemptLeaveEditor(() => {
+                  setActiveDoc(null);
+                  setEditorHasUnsaved(false);
+                })
+              }
+              onOpenSidebar={() => setSidebarOpen(true)}
+              onSaveDocument={handleSaveDocument}
+              onDeleteDocument={handleDeleteDocument}
+              onNotify={onNotify}
+              onSharesChanged={() => void refreshWorkspace()}
+              onDirtyChange={setEditorHasUnsaved}
+              registerSaveHandler={registerEditorSaveHandler}
+            />
           </div>
         ) : navSection === 'trash' ? (
           <TrashView
@@ -1347,39 +1335,39 @@ export function StudentWorkspace({
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
             {/* Top Workspace Header */}
-            <header className="tintalata-header-bar px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+            <header className="tintalata-header-bar px-5 sm:px-6 py-3 min-h-[76px] lg:h-[76px] flex flex-wrap lg:flex-nowrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(true)}
                   aria-label="Buksan ang Sidebar"
-                  className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+                  className="lg:hidden shrink-0 rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
                 >
                   <Menu className="h-5 w-5" />
                 </button>
                 <div className="min-w-0">
                   {navSection === 'folder' ? (
-                    <div className="flex items-center gap-1.5 text-base sm:text-lg font-extrabold text-slate-900 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-base sm:text-lg font-extrabold text-slate-900 truncate">
                       <button
                         type="button"
                         onClick={() => {
                           setNavSection('folders');
                           setSelectedFolderId(null);
                         }}
-                        className="hover:text-blue-700"
+                        className="hover:text-blue-700 shrink-0"
                       >
                         Mga Folder Ko
                       </button>
                       {breadcrumbs.map((b) => (
-                        <span key={b.id} className="flex items-center gap-1.5">
-                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                        <span key={b.id} className="flex items-center gap-1.5 truncate">
+                          <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
                           <button
                             type="button"
                             onClick={() => {
                               setNavSection('folder');
                               setSelectedFolderId(b.id);
                             }}
-                            className="text-blue-700 hover:underline"
+                            className="text-blue-700 hover:underline truncate"
                           >
                             {b.name}
                           </button>
@@ -1391,15 +1379,15 @@ export function StudentWorkspace({
                       {sectionHeaderTitle()}
                     </h2>
                   )}
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 mt-0.5 truncate">
                     {documents.length} dokumento • {folders.length} folder • Natitirang storage:{' '}
                     <strong>{storage.remainingMB.toFixed(2)} MB</strong>
                   </p>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-64">
+              <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 w-full sm:w-auto shrink-0">
+                <div className="relative flex-1 sm:w-48 xl:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
@@ -1475,9 +1463,9 @@ export function StudentWorkspace({
                             <button
                               type="button"
                               onClick={() => void handleCreateDocument(null, true)}
-                              className="group rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-blue-50/90 to-indigo-100/80 p-5 text-left hover:from-blue-600 hover:via-indigo-600 hover:to-blue-700 hover:border-blue-600 hover:text-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-600/25 transition-all duration-300 cursor-pointer"
+                              className="group rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-gradient-to-br from-white via-blue-50/90 to-indigo-100/80 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/60 p-5 text-left hover:from-blue-600 hover:via-indigo-600 hover:to-blue-700 hover:border-blue-600 hover:text-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-600/25 transition-all duration-300 cursor-pointer"
                             >
-                              <div className="h-10 w-10 rounded-xl bg-indigo-100 text-indigo-700 group-hover:bg-white/20 group-hover:text-white flex items-center justify-center mb-3 transition-colors duration-300">
+                              <div className="h-10 w-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 group-hover:bg-white/20 group-hover:text-white flex items-center justify-center mb-3 transition-colors duration-300">
                                 <Brush className="h-5 w-5" />
                               </div>
                               <p className="text-sm font-extrabold text-slate-900 group-hover:text-white transition-colors duration-300">
@@ -1494,9 +1482,9 @@ export function StudentWorkspace({
                                 setEditingFolder(null);
                                 setFolderModalOpen(true);
                               }}
-                              className="group rounded-2xl border border-sky-200 bg-gradient-to-br from-white via-sky-50/90 to-cyan-100/75 p-5 text-left hover:from-sky-600 hover:via-blue-600 hover:to-cyan-600 hover:border-sky-600 hover:text-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-500/25 transition-all duration-300 cursor-pointer"
+                              className="group rounded-2xl border border-sky-200 dark:border-blue-900/60 bg-gradient-to-br from-white via-sky-50/90 to-cyan-100/75 dark:from-slate-900 dark:via-slate-900 dark:to-sky-950/60 p-5 text-left hover:from-sky-600 hover:via-blue-600 hover:to-cyan-600 hover:border-sky-600 hover:text-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-500/25 transition-all duration-300 cursor-pointer"
                             >
-                              <div className="h-10 w-10 rounded-xl bg-sky-100 text-sky-700 group-hover:bg-white/20 group-hover:text-white flex items-center justify-center mb-3 transition-colors duration-300">
+                              <div className="h-10 w-10 rounded-xl bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 group-hover:bg-white/20 group-hover:text-white flex items-center justify-center mb-3 transition-colors duration-300">
                                 <FolderPlus className="h-5 w-5" />
                               </div>
                               <p className="text-sm font-extrabold text-slate-900 group-hover:text-white transition-colors duration-300">

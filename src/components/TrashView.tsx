@@ -59,7 +59,7 @@ export function TrashView({
   return (
     <div className="flex h-full flex-col tintalata-canvas">
       {/* Header */}
-      <div className="tintalata-header-bar px-4 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+      <div className="tintalata-header-bar px-4 sm:px-6 py-3 min-h-[76px] lg:h-[76px] flex flex-wrap lg:flex-nowrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"

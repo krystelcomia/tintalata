@@ -6,6 +6,7 @@ import { StudentWorkspace } from './components/StudentWorkspace';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ToastContainer } from './components/ToastContainer';
 import { TintalataLogo } from './components/TintalataLogo';
+import { applyTheme, getStoredTheme } from './utils/theme';
 
 function normalizePath(pathname: string): string {
   if (!pathname || pathname === '/') return '/';
@@ -43,6 +44,15 @@ export function App() {
       }
     }
     setPathname(clean);
+  }, []);
+
+  useEffect(() => {
+    applyTheme(getStoredTheme(), false);
+    const syncFromStorage = () => {
+      applyTheme(getStoredTheme(), false);
+    };
+    window.addEventListener('storage', syncFromStorage);
+    return () => window.removeEventListener('storage', syncFromStorage);
   }, []);
 
   useEffect(() => {
@@ -181,13 +191,13 @@ export function App() {
 
   if (bootstrapping) {
     return (
-      <div className="h-screen w-screen bg-gradient-to-br from-[#f4f8ff] via-white to-[#e8f1ff] flex items-center justify-center">
+      <div className="h-screen w-screen bg-gradient-to-br from-[#f4f8ff] via-white to-[#e8f1ff] dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center">
         <div className="text-center space-y-3">
           <div className="flex justify-center">
             <TintalataLogo size="lg" />
           </div>
-          <div className="mx-auto h-8 w-8 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
-          <p className="text-sm font-bold text-blue-900">Inihahanda ang Tintalata...</p>
+          <div className="mx-auto h-8 w-8 rounded-full border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 animate-spin" />
+          <p className="text-sm font-bold text-blue-900 dark:text-blue-200">Inihahanda ang Tintalata...</p>
         </div>
       </div>
     );

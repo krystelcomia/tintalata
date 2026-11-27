@@ -46,6 +46,7 @@ import {
   Brush,
   Type,
   FilePlus2,
+  ArrowLeft,
 } from 'lucide-react';
 import type {
   DocumentFull,
@@ -68,6 +69,8 @@ interface WordEditorProps {
   readOnly?: boolean;
   isOwner?: boolean;
   supportStudentId?: string;
+  docStatusText?: string;
+  onBackToWorkspace?: () => void;
   onOpenSidebar: () => void;
   onSaveDocument: (payload: {
     id: string;
@@ -122,6 +125,8 @@ export function WordEditor({
   readOnly = false,
   isOwner = true,
   supportStudentId,
+  docStatusText,
+  onBackToWorkspace,
   onOpenSidebar,
   onSaveDocument,
   onDeleteDocument,
@@ -864,20 +869,32 @@ export function WordEditor({
   ];
 
   return (
-    <div className="flex h-full flex-col bg-[#eef4fc]">
-      {/* Top Document Bar */}
-      <div className="no-print border-b border-blue-200 bg-white px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5 shadow-2xs">
+    <div className="flex h-full flex-col bg-[#eef4fc] dark:bg-slate-950">
+      {/* Top Document Bar (aligned 76px with sidebar header) */}
+      <header className="no-print tintalata-header-bar px-3 sm:px-5 py-2 min-h-[76px] lg:h-[76px] flex flex-wrap lg:flex-nowrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             type="button"
             onClick={onOpenSidebar}
             aria-label="Buksan ang Sidebar"
-            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100"
+            className="lg:hidden rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100"
           >
             <Menu className="h-5 w-5" />
           </button>
 
-          <div className="min-w-0 flex-1 max-w-md">
+          {onBackToWorkspace && (
+            <button
+              type="button"
+              onClick={onBackToWorkspace}
+              title="Bumalik sa Workspace"
+              className="shrink-0 inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50/80 px-2.5 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 hover:text-blue-900 transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Workspace</span>
+            </button>
+          )}
+
+          <div className="min-w-0 flex-1 max-w-sm">
             <input
               type="text"
               value={title}
@@ -888,8 +905,13 @@ export function WordEditor({
                 markUnsaved();
               }}
               placeholder="Pamagat ng Dokumento"
-              className="w-full rounded-lg border border-transparent px-2 py-1 text-base font-bold text-slate-900 hover:border-blue-200 focus:border-blue-500 focus:bg-blue-50/30 focus:outline-none truncate disabled:bg-transparent"
+              className="tintalata-inline-title w-full rounded-lg border border-transparent bg-transparent px-2 py-0.5 text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 hover:border-blue-200 dark:hover:border-blue-700 focus:border-blue-500 focus:bg-blue-50/30 dark:focus:bg-slate-800/80 focus:outline-none truncate disabled:bg-transparent leading-tight"
             />
+            {docStatusText && (
+              <p className="px-2 text-[11px] text-slate-500 truncate leading-tight">
+                {docStatusText}
+              </p>
+            )}
           </div>
 
           {isOwner && !readOnly && (
@@ -900,7 +922,7 @@ export function WordEditor({
                 markUnsaved();
               }}
               title={isFavorite ? 'Alisin sa Mga Paborito' : 'Idagdag sa Mga Paborito'}
-              className={`rounded-xl p-2 border transition ${
+              className={`shrink-0 rounded-xl p-2 border transition ${
                 isFavorite
                   ? 'border-amber-200 bg-amber-50 text-amber-500'
                   : 'border-slate-200 bg-white text-slate-400 hover:text-amber-500'
@@ -920,7 +942,7 @@ export function WordEditor({
                 markUnsaved();
               }}
               aria-label="Folder ng Dokumento"
-              className="hidden sm:block rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-1.5 text-xs font-semibold text-blue-800 focus:border-blue-600 focus:outline-none disabled:opacity-60"
+              className="hidden xl:block max-w-[130px] shrink-0 rounded-xl border border-blue-200 bg-blue-50/70 px-2.5 py-1.5 text-xs font-semibold text-blue-800 focus:border-blue-600 focus:outline-none disabled:opacity-60"
             >
               <option value="">Pangunahing Lalagyan</option>
               {folders.map((f) => (
@@ -931,12 +953,12 @@ export function WordEditor({
             </select>
           )}
 
-          <span className="hidden md:inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+          <span className="hidden xl:inline-flex shrink-0 items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
             {formatBytes(doc.sizeBytes)}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {!readOnly && (
             <button
               type="button"
@@ -955,13 +977,14 @@ export function WordEditor({
               {drawMode ? (
                 <>
                   <Type className="h-3.5 w-3.5" />
-                  Bumalik sa Pagsulat
+                  <span className="hidden xl:inline">Bumalik sa Pagsulat</span>
+                  <span className="xl:hidden">Pagsulat</span>
                 </>
               ) : (
                 <>
                   <Brush className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Gumuhit sa Pahina</span>
-                  <span className="sm:hidden">Guhit</span>
+                  <span className="hidden xl:inline">Gumuhit sa Pahina</span>
+                  <span className="xl:hidden">Guhit</span>
                 </>
               )}
             </button>
@@ -1088,7 +1111,7 @@ export function WordEditor({
             </button>
           )}
         </div>
-      </div>
+      </header>
 
       {/* Ribbon Tabs & Tools */}
       {!readOnly ? (

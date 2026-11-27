@@ -350,9 +350,9 @@ export function DoodleStudioModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto bg-slate-100 p-4 flex items-center justify-center">
+        <div className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-950 p-4 flex items-center justify-center">
           <div
-            className="rounded-xl border-2 border-blue-200 shadow-lg overflow-hidden bg-white"
+            className="tintalata-keep-light rounded-xl border-2 border-blue-200 shadow-lg overflow-hidden bg-white"
             style={{
               backgroundImage:
                 background === 'transparent'

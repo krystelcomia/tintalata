@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { User as UserIcon, Save, Menu, Bell, LogOut, HardDrive } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { User as UserIcon, Save, Menu, Bell, LogOut, HardDrive, Moon, Sun } from 'lucide-react';
 import type { NotificationSettings, StorageSummary, User } from '../types';
 import { apiRequest, formatDateTimeTL } from '../utils/api';
+import { applyTheme, getStoredTheme, type ThemeMode } from '../utils/theme';
 import { PasswordInput } from './PasswordInput';
 import { LogoutConfirmModal } from './LogoutConfirmModal';
 
@@ -48,6 +49,18 @@ export function ProfilePageView({
   const [error, setError] = useState('');
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredTheme());
+
+  useEffect(() => {
+    const onThemeChange = () => setThemeMode(getStoredTheme());
+    window.addEventListener('tintalata:theme-change', onThemeChange);
+    return () => window.removeEventListener('tintalata:theme-change', onThemeChange);
+  }, []);
+
+  const handleSelectTheme = (nextTheme: ThemeMode) => {
+    const applied = applyTheme(nextTheme);
+    setThemeMode(applied);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +90,7 @@ export function ProfilePageView({
 
   return (
     <div className="flex h-full flex-col tintalata-canvas">
-      <header className="tintalata-header-bar px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+      <header className="tintalata-header-bar px-5 sm:px-6 py-3 min-h-[76px] lg:h-[76px] flex flex-wrap lg:flex-nowrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -246,8 +259,78 @@ export function ProfilePageView({
             </div>
           </div>
 
-          {/* Right: Notification Settings & Account Info */}
+          {/* Right: Appearance (Dark Mode), Notification Settings & Account Info */}
           <div className="lg:col-span-5 space-y-6">
+            <div className="rounded-2xl border border-blue-100 bg-white p-6 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  {themeMode === 'dark' ? (
+                    <Moon className="h-4 w-4 text-blue-500" />
+                  ) : (
+                    <Sun className="h-4 w-4 text-blue-600" />
+                  )}
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    Hitsura ng App (Dark Mode)
+                  </h3>
+                </div>
+                <span className="rounded-full bg-blue-50 border border-blue-100 px-2.5 py-0.5 text-[10px] font-bold text-blue-700">
+                  {themeMode === 'dark' ? 'Dark Mode' : 'Light Mode'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3.5">
+                <div>
+                  <p className="text-xs font-bold text-slate-900">Paganahin ang Dark Mode</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Mananatiling naka-save ang napiling tema kahit mag-reload o mag-log out, hanggang sa manu-mano mong palitan dito.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={themeMode === 'dark'}
+                  aria-label="I-toggle ang Dark Mode"
+                  onClick={() => handleSelectTheme(themeMode === 'dark' ? 'light' : 'dark')}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ${
+                    themeMode === 'dark' ? 'bg-blue-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                      themeMode === 'dark' ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => handleSelectTheme('light')}
+                  className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 font-bold transition-all cursor-pointer ${
+                    themeMode === 'light'
+                      ? 'border-blue-600 bg-blue-50 text-blue-800 shadow-xs'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-blue-50/50'
+                  }`}
+                >
+                  <Sun className="h-4 w-4" />
+                  Maliwanag (Light)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTheme('dark')}
+                  className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 font-bold transition-all cursor-pointer ${
+                    themeMode === 'dark'
+                      ? 'border-blue-500 bg-blue-600 text-white shadow-xs'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-blue-50/50'
+                  }`}
+                >
+                  <Moon className="h-4 w-4" />
+                  Madilim (Dark)
+                </button>
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-blue-100 bg-white p-6 shadow-2xs space-y-4">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
                 <Bell className="h-4 w-4 text-blue-600" />

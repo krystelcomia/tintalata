@@ -473,8 +473,8 @@ export function AdminDashboard({
     }`;
 
   const sidebarContent = (
-    <div className="flex h-full flex-col tintalata-sidebar-bg border-r border-blue-200/80">
-      <div className="bg-white border-b border-blue-200/80 p-4 text-slate-900">
+    <div className="flex h-full flex-col tintalata-sidebar-bg border-r border-blue-200/80 dark:border-blue-900/60">
+      <div className="tintalata-header-bar px-4 py-3 min-h-[76px] lg:h-[76px] flex flex-col justify-center text-slate-900">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <TintalataLogo size="sm" />
@@ -494,14 +494,14 @@ export function AdminDashboard({
             <X className="h-5 w-5" />
           </button>
         </div>
-
-        <div className="mt-3 rounded-xl bg-blue-50/70 px-3 py-2 border border-blue-100">
-          <p className="text-xs font-bold text-slate-900 truncate">{user.fullName}</p>
-          <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
-        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-5">
+        <div className="rounded-xl bg-white/85 dark:bg-slate-900/80 px-3 py-2 border border-blue-100 dark:border-blue-900/60">
+          <p className="text-xs font-bold text-slate-900 truncate">{user.fullName}</p>
+          <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
+        </div>
+
         <div>
           <p className="px-2 mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
             Pamamahala
@@ -585,7 +585,7 @@ export function AdminDashboard({
           </nav>
         </div>
 
-        <div className="rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50 to-sky-50/90 p-3.5 text-[11px] text-slate-700 space-y-1.5">
+        <div className="rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-gradient-to-br from-blue-50 to-sky-50/90 dark:from-slate-900 dark:to-slate-800/80 p-3.5 text-[11px] text-slate-700 space-y-1.5">
           <p className="font-bold text-blue-950 flex items-center gap-1.5">
             <ShieldCheck className="h-4 w-4 text-blue-700" />
             Proteksyon sa Pagkapribado
@@ -597,7 +597,7 @@ export function AdminDashboard({
         </div>
       </div>
 
-      <div className="border-t border-blue-200/80 p-3.5 bg-gradient-to-r from-blue-100/40 to-sky-100/40">
+      <div className="border-t border-blue-200/80 dark:border-blue-900/60 p-3.5 bg-gradient-to-r from-blue-100/40 to-sky-100/40 dark:from-slate-900/80 dark:to-slate-950/90">
         <button
           type="button"
           onClick={() => setConfirmLogoutOpen(true)}
@@ -647,25 +647,25 @@ export function AdminDashboard({
 
       <main className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
         {/* Top Desktop Bar */}
-        <header className="tintalata-header-bar px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+        <header className="tintalata-header-bar px-5 sm:px-6 py-3 min-h-[76px] lg:h-[76px] flex flex-wrap lg:flex-nowrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
               aria-label="Buksan ang Sidebar"
-              className="lg:hidden rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100 transition-colors duration-200"
+              className="lg:hidden shrink-0 rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100 transition-colors duration-200"
             >
               <Menu className="h-5 w-5" />
             </button>
-            <div>
-              <h2 className="text-lg font-extrabold text-slate-900">
+            <div className="min-w-0">
+              <h2 className="text-lg font-extrabold text-slate-900 truncate">
                 {sectionTitles[section].title}
               </h2>
-              <p className="text-xs text-slate-500">{sectionTitles[section].subtitle}</p>
+              <p className="text-xs text-slate-500 truncate">{sectionTitles[section].subtitle}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
@@ -743,12 +743,12 @@ export function AdminDashboard({
                     <p className="mt-1 text-xs text-blue-100">Nakarehistrong account</p>
                   </div>
 
-                  <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-sky-50/70 to-blue-50/80 p-5 shadow-sm hover:border-blue-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
+                  <div className="rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-gradient-to-br from-white via-sky-50/70 to-blue-50/80 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800/80 p-5 shadow-sm hover:border-blue-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-emerald-700">Mga Aktibong Account</p>
-                      <UserCheck className="h-5 w-5 text-emerald-600" />
+                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Mga Aktibong Account</p>
+                      <UserCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                     </div>
-                    <p className="mt-2 text-3xl font-extrabold text-emerald-900">
+                    <p className="mt-2 text-3xl font-extrabold text-emerald-900 dark:text-emerald-300">
                       {overview.activeStudents}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
@@ -756,14 +756,14 @@ export function AdminDashboard({
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-rose-200 bg-gradient-to-br from-white to-rose-50/60 p-5 shadow-sm hover:border-rose-300 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
+                  <div className="rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-gradient-to-br from-white to-rose-50/60 dark:from-slate-900 dark:to-rose-950/30 p-5 shadow-sm hover:border-rose-300 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-rose-700">
+                      <p className="text-xs font-semibold text-rose-700 dark:text-rose-400">
                         Sinuspinde / Hindi Aktibo
                       </p>
-                      <UserX className="h-5 w-5 text-rose-600" />
+                      <UserX className="h-5 w-5 text-rose-600 dark:text-rose-400" />
                     </div>
-                    <p className="mt-2 text-3xl font-extrabold text-rose-900">
+                    <p className="mt-2 text-3xl font-extrabold text-rose-900 dark:text-rose-300">
                       {overview.suspendedStudents + overview.inactiveStudents}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
@@ -772,7 +772,7 @@ export function AdminDashboard({
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-blue-50/75 to-indigo-50/80 p-5 shadow-sm hover:border-blue-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
+                  <div className="rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-gradient-to-br from-white via-blue-50/75 to-indigo-50/80 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 p-5 shadow-sm hover:border-blue-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-blue-700">
                         Kabuuang Storage (MB)

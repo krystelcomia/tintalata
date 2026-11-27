@@ -629,9 +629,9 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
           : { label: 'Katamtaman', color: 'bg-blue-600', width: 'w-2/3' };
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-gradient-to-br from-[#f4f8ff] via-white to-[#e8f1ff] text-slate-900">
+    <div className="min-h-screen w-full flex flex-col bg-gradient-to-br from-[#f4f8ff] via-white to-[#e8f1ff] dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 text-slate-900 dark:text-slate-100">
       {/* Full-Width Desktop Application Top Bar */}
-      <header className="w-full border-b border-blue-100 bg-white/95 backdrop-blur px-4 sm:px-8 py-3.5 flex items-center justify-between">
+      <header className="w-full border-b border-blue-100 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <TintalataLogo size="sm" />
           <div>
@@ -679,13 +679,13 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-50/45 via-white/30 to-blue-100/45"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-50/45 via-white/30 to-blue-100/45 dark:from-slate-950/85 dark:via-slate-950/75 dark:to-slate-900/88"
         />
 
         <div
           className={`relative z-10 w-full ${
             mode === 'register' && createdAccountRecovery ? 'max-w-lg' : 'max-w-md'
-          } mx-auto rounded-2xl bg-white/92 backdrop-blur-md border border-white/80 shadow-xl shadow-blue-950/10 p-6 sm:p-8`}
+          } mx-auto rounded-2xl bg-white/92 dark:bg-slate-900/92 backdrop-blur-md border border-white/80 dark:border-slate-700/80 shadow-xl shadow-blue-950/10 dark:shadow-black/50 p-6 sm:p-8`}
         >
           {mode === 'login' && (
             <div className="space-y-6">
@@ -827,7 +827,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
               </div>
 
               {/* Large Separated 6-Digit Display */}
-              <div className="rounded-2xl border-2 border-blue-200 bg-gradient-to-b from-blue-50/90 to-white p-4 sm:p-5">
+              <div className="rounded-2xl border-2 border-blue-200 dark:border-blue-800 bg-gradient-to-b from-blue-50/90 to-white dark:from-slate-800/90 dark:to-slate-900 p-4 sm:p-5">
                 <div
                   aria-label="Your Tintalata 6-Digit Recovery Code"
                   className="grid grid-cols-6 gap-2 sm:gap-3"
@@ -1659,7 +1659,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
       </main>
 
       {/* Full-Width Desktop Status Footer */}
-      <footer className="w-full border-t border-blue-100 bg-white px-4 sm:px-8 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+      <footer className="w-full border-t border-blue-100 dark:border-blue-900/60 bg-white dark:bg-slate-900 px-4 sm:px-8 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
         <span>Tintalata Desktop Application • Bersyon 1.0</span>
         <span>Lahat ng pribadong file ay protektado at nakahiwalay bawat account.</span>
       </footer>
