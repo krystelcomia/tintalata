@@ -8,8 +8,6 @@ import {
   GraduationCap,
   KeyRound,
   ArrowLeft,
-  ChevronDown,
-  ChevronUp,
   CheckCircle2,
   Search,
   Copy,
@@ -75,7 +73,6 @@ interface AuthPageProps {
 }
 
 export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPageProps) {
-  const [showAdminHint, setShowAdminHint] = useState(false);
   const [storageMode, setStorageMode] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -622,13 +619,6 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     }
   };
 
-  const fillAdminDemo = () => {
-    onNavigateMode('login');
-    setLoginEmail('admin@tintalata.ph');
-    setLoginPassword('TintalataAdmin#2026');
-    setError('');
-  };
-
   const passwordStrength =
     regPassword.length === 0
       ? null
@@ -814,49 +804,6 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Magparehistro rito
                   </button>
                 </p>
-                <p className="text-slate-600">
-                  May pending na request sa password reset?{' '}
-                  <button
-                    type="button"
-                    onClick={() => onNavigateMode('reset-status')}
-                    className="font-bold text-blue-700 hover:underline cursor-pointer"
-                  >
-                    Suriin ang Status
-                  </button>
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => setShowAdminHint((s) => !s)}
-                  className="inline-flex items-center gap-1 font-medium text-slate-500 hover:text-blue-700"
-                >
-                  {showAdminHint ? (
-                    <ChevronUp className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  )}
-                  Default na Account ng Tagapangasiwa (Admin)
-                </button>
-                {showAdminHint && (
-                  <div className="w-full rounded-xl border border-blue-200 bg-white/90 px-4 py-3 text-xs text-slate-700 flex items-center justify-between gap-3">
-                    <div>
-                      <p>
-                        Email: <code className="font-mono text-blue-800">admin@tintalata.ph</code>
-                      </p>
-                      <p>
-                        Password:{' '}
-                        <code className="font-mono text-blue-800">TintalataAdmin#2026</code>
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={fillAdminDemo}
-                      className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
-                    >
-                      Punan
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           )}
