@@ -19,6 +19,7 @@ import {
   Printer,
   ShieldAlert,
   Lock,
+  Smartphone,
 } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 import type { PasswordResetStatus, StorageSummary, User } from '../types';
@@ -97,6 +98,11 @@ function PasswordRequirementsChecklist({
   );
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
 interface AuthPageProps {
   mode: AuthRouteMode;
   onNavigateMode: (next: AuthRouteMode) => void;
@@ -114,6 +120,9 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
+  const [installPromptEvent, setInstallPromptEvent] =
+    useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalledApp, setIsInstalledApp] = useState(false);
 
   // Register fields
   const [fullName, setFullName] = useState('');
@@ -248,7 +257,41 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     apiRequest<{ storageMode?: string }>('/api/health')
       .then((res) => setStorageMode(res.storageMode || ''))
       .catch(() => {});
+
+    const standalone =
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      Boolean((window.navigator as { standalone?: boolean }).standalone);
+    setIsInstalledApp(standalone);
+
+    const onBeforeInstall = (ev: Event) => {
+      ev.preventDefault();
+      setInstallPromptEvent(ev as BeforeInstallPromptEvent);
+    };
+    const onAppInstalled = () => {
+      setInstallPromptEvent(null);
+      setIsInstalledApp(true);
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onAppInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('appinstalled', onAppInstalled);
+    };
   }, []);
+
+  const handleInstallApp = async () => {
+    if (!installPromptEvent) return;
+    await installPromptEvent.prompt();
+    try {
+      const choice = await installPromptEvent.userChoice;
+      if (choice.outcome === 'accepted') {
+        setInstallPromptEvent(null);
+        setIsInstalledApp(true);
+      }
+    } catch {
+      // Ignore user prompt cancellation
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -840,6 +883,41 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Magparehistro rito
                   </button>
                 </p>
+              </div>
+
+              <div className="rounded-2xl border border-blue-200 dark:border-blue-800/80 bg-blue-50/75 dark:bg-slate-800/75 p-3.5 text-xs space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <div className="h-8 w-8 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0 mt-0.5">
+                    <Smartphone className="h-4 w-4" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-extrabold text-blue-950 dark:text-blue-100">
+                      Maaaring I-install ang Tintalata App
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                      Maaari mong i-install ito bilang app sa iyong telepono o kompyuter. Kapag
+                      na-download na, mananatiling pareho ang lahat ng mga function at feature—maaari
+                      pa ring mag-log in ang mga Tagapangasiwa (Admin), at mananatiling nakakonekta
+                      ito sa kasalukuyang database.
+                    </p>
+                  </div>
+                </div>
+
+                {installPromptEvent ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleInstallApp()}
+                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-700 transition cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    I-install ang Tintalata App
+                  </button>
+                ) : !isInstalledApp ? (
+                  <p className="text-[11px] text-blue-800 dark:text-blue-300 bg-white/80 dark:bg-slate-900/70 rounded-lg border border-blue-100 dark:border-blue-900/60 px-2.5 py-1.5">
+                    Tip: Buksan sa Chrome/Safari menu (⋮ o Share) at piliin ang{' '}
+                    <strong>Install app</strong> o <strong>Add to Home Screen</strong>.
+                  </p>
+                ) : null}
               </div>
             </div>
           )}

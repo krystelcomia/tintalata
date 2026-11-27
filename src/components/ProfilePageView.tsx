@@ -135,7 +135,7 @@ export function ProfilePageView({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="hidden md:flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setConfirmLogoutOpen(true)}
@@ -436,6 +436,18 @@ export function ProfilePageView({
             </div>
           </div>
         </form>
+
+        {/* Mobile-only bottom Logout action so header remains clean on phones */}
+        <div className="mt-6 md:hidden">
+          <button
+            type="button"
+            onClick={() => setConfirmLogoutOpen(true)}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700 shadow-2xs hover:bg-rose-600 hover:text-white transition-all duration-300 cursor-pointer"
+          >
+            <LogOut className="h-4 w-4" />
+            Mag-log out
+          </button>
+        </div>
       </div>
 
       <LogoutConfirmModal
