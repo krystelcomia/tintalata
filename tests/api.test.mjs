@@ -1635,4 +1635,45 @@ test('Student 6-digit recovery code generation, leading-zero preservation, cross
   });
   assert.equal(verifyCustom.status, 200);
   assert.equal(verifyCustom.body.verified, true);
+
+  // 11. Double-check recovery code in database -> direct password change becomes active account password
+  const wrongDirectReset = await anon.request('/api/auth/reset-password-with-recovery', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '203.0.113.211' },
+    body: JSON.stringify({
+      email: 'clara.reyes@paaralan.ph',
+      studentNumber: '2026-C003',
+      recoveryCode: '000000',
+      recoveryProofToken: verifyCustom.body.recoveryProofToken,
+      newPassword: 'ClaraNewPassword9',
+      confirmPassword: 'ClaraNewPassword9',
+    }),
+  });
+  assert.equal(wrongDirectReset.status, 400);
+
+  const directResetOk = await anon.request('/api/auth/reset-password-with-recovery', {
+    method: 'POST',
+    headers: { 'x-forwarded-for': '203.0.113.212' },
+    body: JSON.stringify({
+      email: 'clara.reyes@paaralan.ph',
+      studentNumber: '2026-C003',
+      recoveryCode: '007319',
+      recoveryProofToken: verifyCustom.body.recoveryProofToken,
+      newPassword: 'ClaraNewPassword9',
+      confirmPassword: 'ClaraNewPassword9',
+    }),
+  });
+  assert.equal(directResetOk.status, 200);
+
+  const claraOldLogin = await new CookieClient(baseUrl).request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'clara.reyes@paaralan.ph', password: 'ClaraPassword1' }),
+  });
+  assert.equal(claraOldLogin.status, 401);
+
+  const claraNewLogin = await new CookieClient(baseUrl).request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'clara.reyes@paaralan.ph', password: 'ClaraNewPassword9' }),
+  });
+  assert.equal(claraNewLogin.status, 200);
 });

@@ -7,6 +7,7 @@ import {
   verifyPassword,
   generateSessionToken,
   isValidRecoveryCodeFormat,
+  decryptRecoveryCode,
   verifyRecoveryCodeHmac,
   signRecoveryProofToken,
   verifyRecoveryProofToken,
@@ -172,7 +173,7 @@ export function createAuthRouter(db) {
     }
 
     const user = await db.get(
-      "SELECT id, email, full_name, student_number, course_section, status FROM users WHERE LOWER(email) = ? AND LOWER(role) = 'student'",
+      "SELECT id, email, full_name, student_number, course_section, status FROM users WHERE LOWER(TRIM(email)) = ? AND LOWER(TRIM(role)) = 'student'",
       cleanEmail
     );
     if (!user) {
@@ -203,18 +204,29 @@ export function createAuthRouter(db) {
       };
     }
 
-    const savedStudentNum = String(user.student_number || '').trim().toLowerCase();
-    const idMatches = !savedStudentNum || cleanStudentNumber.toLowerCase() === savedStudentNum;
+    const normalizeStudentId = (val) =>
+      String(val || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '');
+    const savedStudentNum = normalizeStudentId(user.student_number);
+    const idMatches = !savedStudentNum || normalizeStudentId(cleanStudentNumber) === savedStudentNum;
 
     const activeCode = await db.get(
-      `SELECT id, code_hmac
+      `SELECT id, code_hmac, code_ciphertext
        FROM student_recovery_codes
        WHERE user_id = ? AND status = 'active'
+       ORDER BY created_at DESC
        LIMIT 1`,
       user.id
     );
 
-    if (!idMatches || !activeCode || !verifyRecoveryCodeHmac(user.id, rawCode, activeCode.code_hmac)) {
+    const codeMatches =
+      Boolean(activeCode) &&
+      (verifyRecoveryCodeHmac(user.id, rawCode, activeCode.code_hmac) ||
+        decryptRecoveryCode(activeCode.code_ciphertext, user.id) === rawCode);
+
+    if (!idMatches || !codeMatches) {
       const failResult = await recordRecoveryFailure(user.id, user.email);
       return { ok: false, ...failResult };
     }
@@ -422,11 +434,6 @@ export function createAuthRouter(db) {
         return res.status(verified.status).json({ error: verified.error });
       }
 
-      const dupError = await findActiveResetRequestError(verified.user.id);
-      if (dupError) {
-        return res.status(dupError.status).json({ error: dupError.error });
-      }
-
       const recoveryProofToken = signRecoveryProofToken({
         userId: verified.user.id,
         codeId: verified.activeCodeId,
@@ -435,10 +442,166 @@ export function createAuthRouter(db) {
       return res.json({
         verified: true,
         message:
-          'Matagumpay na naberipika ang iyong 6-digit Recovery Code! Maaari ka nang magsumite ng password reset request sa Admin.',
+          'Tugma ang iyong 6-digit Recovery Code sa database! Maaari ka nang magtakda ng bagong password para sa iyong account.',
         recoveryProofToken,
         fullName: verified.user.full_name,
         studentNumber: verified.user.student_number || verified.cleanStudentNumber,
+      });
+    })
+  );
+
+  router.post(
+    '/reset-password-with-recovery',
+    resetTokenLimiter,
+    asyncHandler(async (req, res) => {
+      const {
+        email = '',
+        studentNumber = '',
+        recoveryCode = '',
+        recoveryProofToken = '',
+        newPassword = '',
+        confirmPassword = '',
+      } = req.body || {};
+
+      const cleanEmail = String(email).trim().toLowerCase();
+      const cleanStudentNumber = String(studentNumber).trim().slice(0, 40);
+      const rawCode = String(recoveryCode ?? '').trim();
+      const rawPass = String(newPassword);
+      const rawConfirm = String(confirmPassword);
+
+      if (rawPass.length < 8 || !/[a-zA-Z]/.test(rawPass) || !/\d/.test(rawPass)) {
+        return res.status(400).json({
+          error:
+            'Ang bagong password ay dapat may hindi bababa sa 8 karakter at may pinagsamang titik at numero.',
+        });
+      }
+      if (rawPass !== rawConfirm) {
+        return res.status(400).json({
+          error: 'Hindi magkatugma ang bagong password at kumpirmasyon.',
+        });
+      }
+
+      let verifiedUser = null;
+
+      if (rawCode) {
+        const verified = await verifyStudentRecoveryIdentity({
+          email: cleanEmail,
+          studentNumber: cleanStudentNumber,
+          recoveryCode: rawCode,
+        });
+        if (!verified.ok) {
+          return res.status(verified.status).json({ error: verified.error });
+        }
+        if (recoveryProofToken) {
+          const proof = verifyRecoveryProofToken(String(recoveryProofToken));
+          if (!proof || proof.userId !== verified.user.id || proof.codeId !== verified.activeCodeId) {
+            return res.status(400).json({
+              error:
+                'Hindi wasto o nag-expire ang iyong beripikasyon ng Recovery Code. Pakiberipika muli.',
+            });
+          }
+        }
+        verifiedUser = verified.user;
+      } else if (recoveryProofToken) {
+        const proof = verifyRecoveryProofToken(String(recoveryProofToken));
+        if (!proof) {
+          return res.status(400).json({
+            error:
+              'Nag-expire o hindi wasto ang iyong beripikasyon ng Recovery Code. Pakilagay muli ang iyong 6-digit Recovery Code.',
+          });
+        }
+        const user = await db.get(
+          "SELECT id, email, full_name, student_number, course_section, status FROM users WHERE LOWER(TRIM(email)) = ? AND LOWER(TRIM(role)) = 'student'",
+          cleanEmail
+        );
+        if (!user || user.id !== proof.userId) {
+          return res.status(400).json({
+            error: 'Hindi tumugma ang beripikadong account sa email na inilagay.',
+          });
+        }
+        if (user.status !== 'active') {
+          return res.status(403).json({
+            error: 'Ang account na ito ay kasalukuyang sinuspinde o hindi aktibo. Makipag-ugnayan sa Admin.',
+          });
+        }
+        const normalizeStudentId = (val) =>
+          String(val || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '');
+        const savedStudentNum = normalizeStudentId(user.student_number);
+        if (savedStudentNum && normalizeStudentId(cleanStudentNumber) !== savedStudentNum) {
+          return res.status(400).json({
+            error: 'Hindi tumugma ang iyong Student ID sa nakarehistrong account.',
+          });
+        }
+        const guard = await db.get(
+          'SELECT blocked_until FROM recovery_verification_guards WHERE user_id = ?',
+          user.id
+        );
+        if (guard?.blocked_until && new Date(guard.blocked_until).getTime() > Date.now()) {
+          return res.status(429).json({
+            error: 'Pansamantalang naka-block ang beripikasyon ng Recovery Code. Pakihintay ng 15 minuto.',
+          });
+        }
+        const activeCode = await db.get(
+          "SELECT id FROM student_recovery_codes WHERE id = ? AND user_id = ? AND status = 'active'",
+          proof.codeId,
+          user.id
+        );
+        if (!activeCode) {
+          return res.status(400).json({
+            error:
+              'Na-invalidate o napalitan na ng Admin ang iyong Recovery Code. Pakiberipika gamit ang bagong code.',
+          });
+        }
+        verifiedUser = user;
+      } else {
+        return res.status(400).json({
+          error: 'Kailangan munang i-verify ang iyong 6-digit Recovery Code sa database.',
+        });
+      }
+
+      const now = new Date().toISOString();
+      await db.run(
+        'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?',
+        hashPassword(rawPass),
+        now,
+        verifiedUser.id
+      );
+      await db.run('DELETE FROM sessions WHERE user_id = ?', verifiedUser.id);
+      await db.run('DELETE FROM recovery_verification_guards WHERE user_id = ?', verifiedUser.id);
+      await db.run(
+        `UPDATE password_reset_requests
+         SET status = 'completed', completed_at = ?, resolved_at = ?, updated_at = ?
+         WHERE user_id = ? AND status IN ('pending', 'approved')`,
+        now,
+        now,
+        now,
+        verifiedUser.id
+      );
+
+      await db.run(
+        `INSERT INTO student_notifications (
+          id, user_id, reset_request_id, type, title, message, is_read, created_at
+        ) VALUES (?, ?, NULL, 'password_changed', 'Napalitan na ang Password', ?, 0, ?)`,
+        crypto.randomUUID(),
+        verifiedUser.id,
+        'Your password has been successfully changed.',
+        now
+      );
+
+      await logAudit(db, {
+        actorId: verifiedUser.id,
+        targetUserId: verifiedUser.id,
+        action: 'STUDENT_PASSWORD_RESET_COMPLETED',
+        details: `Matagumpay na napalitan ng mag-aaral ang password gamit ang 6-digit Recovery Code (${verifiedUser.email})`,
+      });
+
+      return res.json({
+        message:
+          'Matagumpay na napalitan ang iyong password! Ito na ang magiging password ng iyong account at maaari ka nang mag-log in.',
+        email: verifiedUser.email,
       });
     })
   );

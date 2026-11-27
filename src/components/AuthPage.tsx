@@ -65,6 +65,38 @@ function formatDateTimePH(value: string | null | undefined): string {
   });
 }
 
+function PasswordRequirementsChecklist({
+  password,
+  confirmPassword,
+}: {
+  password: string;
+  confirmPassword: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-1">
+      <p className="font-bold text-slate-700 mb-1">Mga Kinakailangan sa Password:</p>
+      <p className={password.length >= 8 ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
+        {password.length >= 8 ? '✓' : '•'} Hindi bababa sa 8 karakter
+      </p>
+      <p className={/[A-Za-z]/.test(password) ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
+        {/[A-Za-z]/.test(password) ? '✓' : '•'} May kahit isang letra (A-Z / a-z)
+      </p>
+      <p className={/\d/.test(password) ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
+        {/\d/.test(password) ? '✓' : '•'} May kahit isang numero (0-9)
+      </p>
+      <p
+        className={
+          password.length > 0 && password === confirmPassword
+            ? 'text-emerald-700 font-semibold'
+            : 'text-slate-500'
+        }
+      >
+        {password.length > 0 && password === confirmPassword ? '✓' : '•'} Magkatugma ang kumpirmasyon
+      </p>
+    </div>
+  );
+}
+
 interface AuthPageProps {
   mode: AuthRouteMode;
   onNavigateMode: (next: AuthRouteMode) => void;
@@ -102,8 +134,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
   const [copiedRecoveryCode, setCopiedRecoveryCode] = useState(false);
   const [acknowledgedRecoverySaved, setAcknowledgedRecoverySaved] = useState(false);
 
-  // Forgot password fields (Step 1: Recovery Code verification -> Step 2: Admin Request)
-  const [forgotFullName, setForgotFullName] = useState('');
+  // Forgot password fields (Step 1: Double-check Recovery Code in DB -> Step 2: Set New Password)
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStudentNumber, setForgotStudentNumber] = useState('');
   const [forgotRecoveryCode, setForgotRecoveryCode] = useState('');
@@ -113,9 +144,9 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     studentNumber: string;
     email: string;
   } | null>(null);
-  const [forgotReason, setForgotReason] = useState('');
-  const [forgotReference, setForgotReference] = useState('');
-  const [copiedRef, setCopiedRef] = useState(false);
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [recoveryResetDoneEmail, setRecoveryResetDoneEmail] = useState('');
 
   // Public request status tracking fields
   const [statusEmail, setStatusEmail] = useState('');
@@ -197,6 +228,9 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     if (mode !== 'forgot-password') {
       setForgotVerifiedProof(null);
       setForgotRecoveryCode('');
+      setForgotNewPassword('');
+      setForgotConfirmPassword('');
+      setRecoveryResetDoneEmail('');
     }
     if (mode !== 'register') {
       setCreatedAccountRecovery(null);
@@ -461,9 +495,13 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
         studentNumber: res.studentNumber,
         email: forgotEmail.trim().toLowerCase(),
       });
-      setForgotFullName(res.fullName);
+      setForgotNewPassword('');
+      setForgotConfirmPassword('');
       setSuccessInfo(res.message);
-      onNotify('success', 'Naberipika ang Recovery Code! Magpatuloy sa pagsusumite sa Admin.');
+      onNotify(
+        'success',
+        'Naberipika ang Recovery Code! Maaari ka nang magtakda ng bagong password.'
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Nabigo ang beripikasyon ng Recovery Code.';
       setError(msg);
@@ -473,20 +511,30 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
     }
   };
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
+  const handleResetPasswordWithRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessInfo('');
-    setForgotReference('');
-    setCopiedRef(false);
 
     if (!forgotVerifiedProof) {
       setError('Beripikahin muna ang iyong 6-digit Student Recovery Code.');
       return;
     }
 
-    if (!forgotFullName.trim() || !forgotReason.trim()) {
-      const msg = 'Pakipunan ang buong pangalan at dahilan ng paghingi ng password reset.';
+    const hasLength = forgotNewPassword.length >= 8;
+    const hasLetter = /[A-Za-z]/.test(forgotNewPassword);
+    const hasDigit = /\d/.test(forgotNewPassword);
+
+    if (!hasLength || !hasLetter || !hasDigit) {
+      const msg =
+        'Ang bagong password ay dapat hindi bababa sa 8 karakter at may halong kahit isang letra at isang numero.';
+      setError(msg);
+      onNotify('error', msg);
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      const msg = 'Hindi magkatugma ang bagong password at pagkumpirma.';
       setError(msg);
       onNotify('error', msg);
       return;
@@ -494,50 +542,38 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
 
     setLoading(true);
     try {
-      const submittedEmail = forgotVerifiedProof.email;
-      const res = await apiRequest<{
-        message: string;
-        referenceNumber: string;
-        status: PasswordResetStatus;
-        submittedAt: string;
-      }>('/api/auth/forgot-password', {
-        method: 'POST',
-        body: JSON.stringify({
-          recoveryProofToken: forgotVerifiedProof.token,
-          fullName: forgotFullName.trim(),
-          email: submittedEmail,
-          studentNumber: forgotVerifiedProof.studentNumber,
-          reason: forgotReason.trim(),
-        }),
-      });
+      const res = await apiRequest<{ message: string; email: string }>(
+        '/api/auth/reset-password-with-recovery',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            email: forgotVerifiedProof.email,
+            studentNumber: forgotVerifiedProof.studentNumber,
+            recoveryCode: forgotRecoveryCode.trim(),
+            recoveryProofToken: forgotVerifiedProof.token,
+            newPassword: forgotNewPassword,
+            confirmPassword: forgotConfirmPassword,
+          }),
+        }
+      );
+      const updatedEmail = res.email || forgotVerifiedProof.email;
       setSuccessInfo(res.message);
-      setForgotReference(res.referenceNumber);
-      setStatusEmail(submittedEmail);
-      setStatusRef(res.referenceNumber);
+      setRecoveryResetDoneEmail(updatedEmail);
+      setLoginEmail(updatedEmail);
+      setLoginPassword('');
       onNotify('success', res.message);
-      setForgotFullName('');
       setForgotEmail('');
       setForgotStudentNumber('');
       setForgotRecoveryCode('');
       setForgotVerifiedProof(null);
-      setForgotReason('');
+      setForgotNewPassword('');
+      setForgotConfirmPassword('');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Hindi naipadala ang kahilingan.';
+      const msg = err instanceof Error ? err.message : 'Hindi napalitan ang password.';
       setError(msg);
       onNotify('error', msg);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCopyReference = async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedRef(true);
-      onNotify('info', 'Nakopya ang Reference Number.');
-      setTimeout(() => setCopiedRef(false), 2500);
-    } catch {
-      onNotify('info', `Reference Number: ${value}`);
     }
   };
 
@@ -1161,7 +1197,7 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     Nakalimutan ang Password?
                   </h1>
                   <p className="mt-1 text-sm text-slate-500">
-                    Magpadala ng kahilingan sa Tagapangasiwa upang ma-reset ang iyong password.
+                    Beripikahin ang iyong 6-digit Recovery Code sa database upang makapagtakda ng bagong password.
                   </p>
                 </div>
               </div>
@@ -1191,45 +1227,30 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 </div>
               )}
 
-              {forgotReference && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-2.5 text-xs">
-                  <div className="flex items-start gap-2 text-emerald-800">
-                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600" />
-                    <div>
-                      <p className="font-bold">Naipadala na ang iyong kahilingan (Pending)</p>
-                      <p className="text-emerald-700 mt-0.5">
-                        I-save ang iyong Reference Number upang masubaybayan ang desisyon ng Admin kahit
-                        hindi naka-log in:
-                      </p>
+              {recoveryResetDoneEmail && (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-900 space-y-1.5">
+                    <div className="flex items-center gap-2 font-bold text-emerald-800">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      Matagumpay na Napalitan ang Password
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2">
-                    <span className="font-mono font-bold text-sm text-slate-900 select-all">
-                      {forgotReference}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyReference(forgotReference)}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                    >
-                      {copiedRef ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                      {copiedRef ? 'Nakopya' : 'Kopyahin'}
-                    </button>
+                    <p>
+                      Aktibo na ang bagong password para sa iyong account (
+                      <strong>{recoveryResetDoneEmail}</strong>). Gamitin ito sa susunod mong
+                      pag-log in.
+                    </p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setStatusRef(forgotReference);
-                      onNavigateMode('reset-status');
-                    }}
-                    className="w-full rounded-lg bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-700 transition cursor-pointer"
+                    onClick={() => onNavigateMode('login')}
+                    className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition cursor-pointer"
                   >
-                    Suriin ang Status ng Request Ngayon
+                    Mag-log in Gamit ang Bagong Password
                   </button>
                 </div>
               )}
 
-              {!forgotReference && !forgotVerifiedProof && (
+              {!recoveryResetDoneEmail && !forgotVerifiedProof && (
                 <form onSubmit={handleVerifyRecoveryCode} className="space-y-3.5">
                   <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-3.5 py-2.5 text-xs text-blue-900 font-semibold flex items-center gap-2">
                     <Lock className="h-3.5 w-3.5 text-blue-700 shrink-0" />
@@ -1296,19 +1317,24 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                 </form>
               )}
 
-              {!forgotReference && forgotVerifiedProof && (
-                <form onSubmit={handleForgotPassword} className="space-y-3.5">
+              {!recoveryResetDoneEmail && forgotVerifiedProof && (
+                <form onSubmit={handleResetPasswordWithRecovery} className="space-y-3.5">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-900 flex items-center justify-between gap-2">
                     <div>
-                      <p className="font-bold">Hakbang 2 ng 2: Naberipika ang Recovery Code</p>
+                      <p className="font-bold">
+                        Hakbang 2 ng 2: Tugma ang Code — Magtakda ng Bagong Password
+                      </p>
                       <p className="text-[11px] text-emerald-800">
-                        {forgotVerifiedProof.email} • ID: {forgotVerifiedProof.studentNumber}
+                        {forgotVerifiedProof.fullName} • {forgotVerifiedProof.email} • ID:{' '}
+                        {forgotVerifiedProof.studentNumber}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
                         setForgotVerifiedProof(null);
+                        setForgotNewPassword('');
+                        setForgotConfirmPassword('');
                         setSuccessInfo('');
                         setError('');
                       }}
@@ -1320,38 +1346,39 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
 
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      Buong Pangalan (Full Name) *
+                      Bagong Password *
                     </label>
-                    <input
-                      type="text"
+                    <PasswordInput
                       required
-                      value={forgotFullName}
-                      onChange={(e) => setForgotFullName(e.target.value)}
-                      placeholder="Hal. Juan Dela Cruz"
-                      className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                      value={forgotNewPassword}
+                      onChange={setForgotNewPassword}
+                      placeholder="Hindi bababa sa 8 karakter (may letra at numero)"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      Dahilan ng Paghingi ng Password Reset *
+                      Kumpirmahin ang Bagong Password *
                     </label>
-                    <textarea
-                      rows={3}
+                    <PasswordInput
                       required
-                      value={forgotReason}
-                      onChange={(e) => setForgotReason(e.target.value)}
-                      placeholder="Ipaliwanag kung bakit kailangan i-reset ang iyong password (hal. nagpalit ng device o nakalimutan ang password)"
-                      className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none focus:ring-3 focus:ring-blue-100"
+                      value={forgotConfirmPassword}
+                      onChange={setForgotConfirmPassword}
+                      placeholder="Ulitin ang bagong password"
                     />
                   </div>
+
+                  <PasswordRequirementsChecklist
+                    password={forgotNewPassword}
+                    confirmPassword={forgotConfirmPassword}
+                  />
 
                   <button
                     type="submit"
                     disabled={loading}
                     className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-60 transition cursor-pointer"
                   >
-                    {loading ? 'Ipinapadala...' : 'Ipadala ang Kahilingan sa Admin'}
+                    {loading ? 'Sine-save...' : 'I-save ang Bagong Password'}
                   </button>
                 </form>
               )}
@@ -1621,28 +1648,10 @@ export function AuthPage({ mode, onNavigateMode, onSuccess, onNotify }: AuthPage
                     />
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-1">
-                    <p className="font-bold text-slate-700 mb-1">Mga Kinakailangan sa Password:</p>
-                    <p className={newResetPassword.length >= 8 ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
-                      {newResetPassword.length >= 8 ? '✓' : '•'} Hindi bababa sa 8 karakter
-                    </p>
-                    <p className={/[A-Za-z]/.test(newResetPassword) ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
-                      {/[A-Za-z]/.test(newResetPassword) ? '✓' : '•'} May kahit isang letra (A-Z / a-z)
-                    </p>
-                    <p className={/\d/.test(newResetPassword) ? 'text-emerald-700 font-semibold' : 'text-slate-500'}>
-                      {/\d/.test(newResetPassword) ? '✓' : '•'} May kahit isang numero (0-9)
-                    </p>
-                    <p
-                      className={
-                        newResetPassword.length > 0 && newResetPassword === confirmResetPassword
-                          ? 'text-emerald-700 font-semibold'
-                          : 'text-slate-500'
-                      }
-                    >
-                      {newResetPassword.length > 0 && newResetPassword === confirmResetPassword ? '✓' : '•'}{' '}
-                      Magkatugma ang kumpirmasyon
-                    </p>
-                  </div>
+                  <PasswordRequirementsChecklist
+                    password={newResetPassword}
+                    confirmPassword={confirmResetPassword}
+                  />
 
                   <button
                     type="submit"
