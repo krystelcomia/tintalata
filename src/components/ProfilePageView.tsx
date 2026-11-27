@@ -3,6 +3,7 @@ import { User as UserIcon, Save, Menu, Bell, LogOut, HardDrive } from 'lucide-re
 import type { NotificationSettings, StorageSummary, User } from '../types';
 import { apiRequest, formatDateTimeTL } from '../utils/api';
 import { PasswordInput } from './PasswordInput';
+import { LogoutConfirmModal } from './LogoutConfirmModal';
 
 interface ProfilePageViewProps {
   user: User;
@@ -45,6 +46,8 @@ export function ProfilePageView({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,8 +103,8 @@ export function ProfilePageView({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void onLogout()}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white transition-all duration-300"
+            onClick={() => setConfirmLogoutOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white transition-all duration-300 cursor-pointer"
           >
             <LogOut className="h-4 w-4" />
             Mag-log out
@@ -354,6 +357,22 @@ export function ProfilePageView({
           </div>
         </form>
       </div>
+
+      <LogoutConfirmModal
+        open={confirmLogoutOpen}
+        busy={loggingOut}
+        accountLabel={user.email}
+        onCancel={() => setConfirmLogoutOpen(false)}
+        onConfirm={async () => {
+          setLoggingOut(true);
+          try {
+            await onLogout();
+          } finally {
+            setLoggingOut(false);
+            setConfirmLogoutOpen(false);
+          }
+        }}
+      />
     </div>
   );
 }

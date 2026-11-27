@@ -41,6 +41,7 @@ import type {
 } from '../types';
 import { apiRequest, formatDateTimeTL } from '../utils/api';
 import { TintalataLogo } from './TintalataLogo';
+import { LogoutConfirmModal } from './LogoutConfirmModal';
 
 interface AdminDashboardProps {
   user: User;
@@ -65,6 +66,8 @@ export function AdminDashboard({
 }: AdminDashboardProps) {
   const [section, setSection] = useState<AdminSection>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [students, setStudents] = useState<AdminStudent[]>([]);
@@ -597,7 +600,7 @@ export function AdminDashboard({
       <div className="border-t border-blue-200/80 p-3.5 bg-gradient-to-r from-blue-100/40 to-sky-100/40">
         <button
           type="button"
-          onClick={() => void onLogout()}
+          onClick={() => setConfirmLogoutOpen(true)}
           className="w-full flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white py-2 text-xs font-bold text-blue-800 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all duration-300 cursor-pointer"
         >
           <LogOut className="h-3.5 w-3.5" />
@@ -2248,6 +2251,23 @@ export function AdminDashboard({
           </div>
         </div>
       )}
+
+      <LogoutConfirmModal
+        open={confirmLogoutOpen}
+        busy={loggingOut}
+        accountLabel={user.email}
+        isAdmin
+        onCancel={() => setConfirmLogoutOpen(false)}
+        onConfirm={async () => {
+          setLoggingOut(true);
+          try {
+            await onLogout();
+          } finally {
+            setLoggingOut(false);
+            setConfirmLogoutOpen(false);
+          }
+        }}
+      />
     </div>
   );
 }
