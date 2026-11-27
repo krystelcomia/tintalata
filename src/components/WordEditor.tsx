@@ -28,7 +28,6 @@ import {
   Trash2,
   Save,
   Search,
-  ChevronDown,
   Minus,
   Indent,
   Outdent,
@@ -69,6 +68,7 @@ interface WordEditorProps {
   readOnly?: boolean;
   isOwner?: boolean;
   supportStudentId?: string;
+  defaultDownloadFormat?: 'docx' | 'pdf' | 'doc' | 'html' | 'txt';
   docStatusText?: string;
   onBackToWorkspace?: () => void;
   onOpenSidebar: () => void;
@@ -125,6 +125,7 @@ export function WordEditor({
   readOnly = false,
   isOwner = true,
   supportStudentId,
+  defaultDownloadFormat = 'docx',
   docStatusText,
   onBackToWorkspace,
   onOpenSidebar,
@@ -178,7 +179,9 @@ export function WordEditor({
   const [zoom, setZoom] = useState(100);
 
   // Menus & Modals
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [selectedDownloadFormat, setSelectedDownloadFormat] = useState<
+    'docx' | 'pdf' | 'doc' | 'html' | 'txt'
+  >(defaultDownloadFormat);
   const [tableMenuOpen, setTableMenuOpen] = useState(false);
   const [tableHover, setTableHover] = useState({ r: 3, c: 3 });
   const [showFindBar, setShowFindBar] = useState(false);
@@ -819,9 +822,8 @@ export function WordEditor({
   };
 
   const handleDownload = async (format: 'docx' | 'pdf' | 'doc' | 'html' | 'txt') => {
-    setDownloadMenuOpen(false);
     if (doc.isNewDraft) {
-      onNotify('info', 'Pindutin muna ang "I-save" upang maitala ang bagong dokumento bago mag-download.');
+      onNotify('info', 'Pindutin muna ang "I-save" bago i-download ang bagong dokumento.');
       return;
     }
     try {
@@ -1004,7 +1006,7 @@ export function WordEditor({
               className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
             >
               <Share2 className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Ibahagi</span>
+              <span className="hidden xl:inline">Ibahagi</span>
             </button>
           )}
 
@@ -1035,69 +1037,32 @@ export function WordEditor({
             </button>
           )}
 
-          {/* Download Dropdown with Real DOCX & PDF */}
-          <div className="relative">
+          {/* Simple Selected-Type Download Control */}
+          <div className="inline-flex items-center rounded-xl border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs shrink-0">
+            <select
+              value={selectedDownloadFormat}
+              onChange={(e) =>
+                setSelectedDownloadFormat(
+                  e.target.value as 'docx' | 'pdf' | 'doc' | 'html' | 'txt'
+                )
+              }
+              aria-label="Piliin ang uri ng file"
+              className="bg-transparent pl-2.5 pr-1 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+            >
+              <option value="docx">.docx</option>
+              <option value="pdf">.pdf</option>
+              <option value="doc">.doc</option>
+              <option value="html">.html</option>
+              <option value="txt">.txt</option>
+            </select>
             <button
               type="button"
-              onClick={() => setDownloadMenuOpen((o) => !o)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+              onClick={() => void handleDownload(selectedDownloadFormat)}
+              className="inline-flex items-center gap-1.5 border-l border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-600 hover:text-white px-3 py-2 text-xs font-bold text-blue-700 dark:text-blue-300 transition-colors cursor-pointer"
             >
               <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">I-download</span>
-              <ChevronDown className="h-3.5 w-3.5" />
+              <span>Download</span>
             </button>
-            {downloadMenuOpen && (
-              <div className="absolute right-0 mt-1.5 w-56 rounded-xl border border-blue-100 bg-white py-1.5 shadow-xl z-30">
-                <button
-                  type="button"
-                  onClick={() => void handleDownload('docx')}
-                  className="w-full px-4 py-2 text-left text-xs font-bold text-blue-800 hover:bg-blue-50"
-                >
-                  Microsoft Word (.docx)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDownload('pdf')}
-                  className="w-full px-4 py-2 text-left text-xs font-bold text-blue-800 hover:bg-blue-50"
-                >
-                  PDF Dokumento (.pdf)
-                </button>
-                <div className="my-1 border-t border-slate-100" />
-                <button
-                  type="button"
-                  onClick={() => void handleDownload('doc')}
-                  className="w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-blue-50"
-                >
-                  Word Classic (.doc)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDownload('html')}
-                  className="w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-blue-50"
-                >
-                  Web Page (.html)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDownload('txt')}
-                  className="w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-blue-50"
-                >
-                  Payak na Teksto (.txt)
-                </button>
-                <div className="my-1 border-t border-slate-100" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDownloadMenuOpen(false);
-                    window.print();
-                  }}
-                  className="w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-blue-50 flex items-center gap-2"
-                >
-                  <Printer className="h-3.5 w-3.5" />
-                  I-print ang Dokumento
-                </button>
-              </div>
-            )}
           </div>
 
           {isOwner && !readOnly && (
@@ -1714,6 +1679,15 @@ export function WordEditor({
                 >
                   <FilePlus2 className="h-3.5 w-3.5" />
                   Magdagdag ng Blangkong Pahina
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-blue-50 cursor-pointer"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  I-print
                 </button>
               </div>
             )}

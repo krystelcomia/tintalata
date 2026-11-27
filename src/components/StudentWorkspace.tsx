@@ -78,6 +78,15 @@ type NavSection =
   | 'profile';
 
 type SortOption = 'updated' | 'opened' | 'created' | 'title' | 'size';
+type DownloadFormat = 'docx' | 'pdf' | 'doc' | 'html' | 'txt';
+
+const DOWNLOAD_FORMATS: Array<{ value: DownloadFormat; label: string }> = [
+  { value: 'docx', label: '.docx' },
+  { value: 'pdf', label: '.pdf' },
+  { value: 'doc', label: '.doc' },
+  { value: 'html', label: '.html' },
+  { value: 'txt', label: '.txt' },
+];
 
 export function StudentWorkspace({
   currentUser,
@@ -90,7 +99,8 @@ export function StudentWorkspace({
 }: StudentWorkspaceProps) {
   const supportStudentId = supportContext?.studentId;
   const readOnly = supportContext ? supportContext.permissionLevel === 'read' : false;
-  const defaultDlFormat = currentUser.notificationSettings?.defaultDownloadFormat || 'docx';
+  const defaultDlFormat: DownloadFormat =
+    currentUser.notificationSettings?.defaultDownloadFormat || 'docx';
 
   const [folders, setFolders] = useState<FolderType[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -106,6 +116,8 @@ export function StudentWorkspace({
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('updated');
+  const [docDownloadFormats, setDocDownloadFormats] = useState<Record<string, DownloadFormat>>({});
+  const [highlightedDocId, setHighlightedDocId] = useState<string | null>(null);
 
   // Open document in WordEditor
   const [activeDoc, setActiveDoc] = useState<DocumentFull | null>(null);
@@ -144,8 +156,10 @@ export function StudentWorkspace({
   const [deletingItem, setDeletingItem] = useState(false);
   const [pendingGrants, setPendingGrants] = useState(initialPendingGrants);
 
-  const refreshWorkspace = async () => {
-    setLoadingList(true);
+  const refreshWorkspace = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) {
+      setLoadingList(true);
+    }
     try {
       const [fRes, dRes, sRes, tRes, shRes] = await Promise.all([
         apiRequest<{ folders: FolderType[] }>('/api/folders', { supportStudentId }),
@@ -261,6 +275,25 @@ export function StudentWorkspace({
     });
   };
 
+  useEffect(() => {
+    if (!highlightedDocId) return;
+    const timer = window.setTimeout(() => setHighlightedDocId(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [highlightedDocId]);
+
+  const handleDownloadCardDoc = async (doc: DocumentSummary, format: DownloadFormat) => {
+    try {
+      await triggerDownload(
+        `/api/documents/${doc.id}/download?format=${format}`,
+        `${doc.title}.${format}`,
+        supportStudentId
+      );
+      onNotify('success', `Na-download ang "${doc.title}.${format}".`);
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : 'Nabigo ang pag-download ng file.');
+    }
+  };
+
   const handleSaveDocument = async (payload: {
     id: string;
     title: string;
@@ -305,8 +338,6 @@ export function StudentWorkspace({
             }),
           }
         );
-    setActiveDoc(res.document);
-    setEditorHasUnsaved(false);
     setStorage(res.storage);
     const summaryItem: DocumentSummary = {
       id: res.document.id,
@@ -322,12 +353,33 @@ export function StudentWorkspace({
       createdAt: res.document.createdAt,
       updatedAt: res.document.updatedAt,
     };
-    setDocuments((prev) =>
-      isDraft
-        ? [summaryItem, ...prev.filter((d) => d.id !== res.document.id)]
-        : prev.map((d) => (d.id === res.document.id ? { ...d, ...summaryItem } : d))
-    );
-    void refreshWorkspace();
+    const isSharedEdit = Boolean(activeDoc?.sharedRole || res.document.sharedRole);
+    if (isSharedEdit) {
+      setSharedWithMe((prev) =>
+        prev.map((d) => (d.id === res.document.id ? { ...d, ...summaryItem } : d))
+      );
+    } else {
+      setDocuments((prev) =>
+        isDraft
+          ? [summaryItem, ...prev.filter((d) => d.id !== res.document.id)]
+          : prev.map((d) => (d.id === res.document.id ? { ...d, ...summaryItem } : d))
+      );
+    }
+    setEditorHasUnsaved(false);
+    setActiveDoc(null);
+    setSearchQuery('');
+    setHighlightedDocId(res.document.id);
+    if (isSharedEdit) {
+      setNavSection('shared');
+      setSelectedFolderId(null);
+    } else if (res.document.folderId) {
+      setNavSection('folder');
+      setSelectedFolderId(res.document.folderId);
+    } else {
+      setNavSection('documents');
+      setSelectedFolderId(null);
+    }
+    void refreshWorkspace({ silent: true });
   };
 
   const handleToggleFavorite = async (doc: DocumentSummary) => {
@@ -722,10 +774,16 @@ export function StudentWorkspace({
   const renderDocCard = (doc: DocumentSummary) => {
     const isSharedDoc = Boolean(doc.sharedRole);
     const canEdit = !readOnly && (!isSharedDoc || doc.sharedRole === 'read_write');
+    const selectedFormat: DownloadFormat = docDownloadFormats[doc.id] || defaultDlFormat;
+    const isJustSaved = highlightedDocId === doc.id;
     return (
       <div
         key={doc.id}
-        className="group rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95 p-4 shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 dark:hover:from-slate-900 dark:hover:to-blue-950/70 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3"
+        className={`group rounded-2xl border bg-white/95 dark:bg-slate-900/95 p-4 shadow-sm hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 dark:hover:from-slate-900 dark:hover:to-blue-950/70 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3 ${
+          isJustSaved
+            ? 'border-blue-600 ring-2 ring-blue-500/50 dark:border-blue-400'
+            : 'border-blue-200/80 dark:border-blue-900/60'
+        }`}
       >
         <div className="space-y-2">
           <div className="flex items-start justify-between gap-2">
@@ -823,20 +881,33 @@ export function StudentWorkspace({
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() =>
-              void triggerDownload(
-                `/api/documents/${doc.id}/download?format=${defaultDlFormat}`,
-                `${doc.title}.${defaultDlFormat}`,
-                supportStudentId
-              )
-            }
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
-          >
-            <Download className="h-3 w-3" />
-            .{defaultDlFormat}
-          </button>
+          <div className="inline-flex items-center rounded-lg border border-blue-200 dark:border-blue-800/80 bg-blue-50/60 dark:bg-slate-900 overflow-hidden">
+            <select
+              value={selectedFormat}
+              onChange={(e) =>
+                setDocDownloadFormats((prev) => ({
+                  ...prev,
+                  [doc.id]: e.target.value as DownloadFormat,
+                }))
+              }
+              aria-label={`Uri ng file para sa ${doc.title}`}
+              className="bg-transparent pl-1.5 pr-0.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+            >
+              {DOWNLOAD_FORMATS.map((fmt) => (
+                <option key={fmt.value} value={fmt.value}>
+                  {fmt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleDownloadCardDoc(doc, selectedFormat)}
+              className="inline-flex items-center gap-1 border-l border-blue-200 dark:border-blue-800/80 bg-blue-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-blue-700 transition-colors cursor-pointer"
+            >
+              <Download className="h-3 w-3" />
+              Download
+            </button>
+          </div>
 
           {!isSharedDoc && !readOnly && (
             <button
@@ -1266,6 +1337,7 @@ export function StudentWorkspace({
               readOnly={readOnly || activeDoc.sharedRole === 'read'}
               isOwner={!activeDoc.sharedRole}
               supportStudentId={supportStudentId}
+              defaultDownloadFormat={defaultDlFormat}
               docStatusText={
                 activeDoc.isNewDraft
                   ? 'Bagong draft • Hindi pa nai-save'
