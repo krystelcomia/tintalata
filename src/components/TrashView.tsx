@@ -9,7 +9,6 @@ interface TrashViewProps {
   documents: TrashDocument[];
   loading: boolean;
   readOnly?: boolean;
-  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onRestoreFolder: (id: string) => Promise<void>;
   onRestoreDocument: (id: string) => Promise<void>;
@@ -23,7 +22,6 @@ export function TrashView({
   documents,
   loading,
   readOnly = false,
-  headerActions,
   onOpenSidebar,
   onRestoreFolder,
   onRestoreDocument,
@@ -59,18 +57,18 @@ export function TrashView({
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#f4f8ff]">
+    <div className="flex h-full flex-col tintalata-canvas">
       {/* Header */}
-      <div className="border-b border-blue-100 bg-white px-4 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+      <div className="tintalata-header-bar px-4 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
-            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+            className="lg:hidden rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100 transition-colors duration-200"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-sky-500 shadow-sm shadow-blue-600/20 flex items-center justify-center text-white">
             <Trash2 className="h-5 w-5" />
           </div>
           <div>
@@ -82,7 +80,6 @@ export function TrashView({
         </div>
 
         <div className="flex items-center gap-2">
-          {headerActions}
           {!readOnly && totalItems > 0 && (
             <button
               type="button"
@@ -92,7 +89,7 @@ export function TrashView({
                   meta: `${documents.length} dokumento at ${folders.length} folder`,
                 })
               }
-              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:from-rose-700 hover:to-red-700 transition-all duration-300"
             >
               <Trash2 className="h-4 w-4" />
               Linisin Lahat sa Basurahan

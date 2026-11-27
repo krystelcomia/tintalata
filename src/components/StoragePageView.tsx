@@ -14,7 +14,6 @@ interface LargestDoc {
 interface StoragePageViewProps {
   storage: StorageSummary;
   supportStudentId?: string;
-  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onBackToProfile?: () => void;
   onOpenDocument: (docId: string) => void;
@@ -25,7 +24,6 @@ interface StoragePageViewProps {
 export function StoragePageView({
   storage,
   supportStudentId,
-  headerActions,
   onOpenSidebar,
   onBackToProfile,
   onOpenDocument,
@@ -69,18 +67,18 @@ export function StoragePageView({
         : 'bg-blue-600';
 
   return (
-    <div className="flex h-full flex-col bg-[#f4f8ff]">
-      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-full flex-col tintalata-canvas">
+      <header className="tintalata-header-bar px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
             aria-label="Buksan ang Sidebar"
-            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+            className="lg:hidden rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100 transition-colors duration-200"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-sky-500 shadow-sm shadow-blue-600/20 flex items-center justify-center text-white">
             <HardDrive className="h-5 w-5" />
           </div>
           <div>
@@ -92,12 +90,11 @@ export function StoragePageView({
         </div>
 
         <div className="flex items-center gap-2">
-          {headerActions}
           {onBackToProfile && (
             <button
               type="button"
               onClick={onBackToProfile}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50 transition-colors duration-200"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Bumalik sa Profile at Mga Setting
@@ -107,7 +104,7 @@ export function StoragePageView({
             type="button"
             onClick={() => void loadStorage()}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-600 hover:text-white transition-all duration-300"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             I-refresh

@@ -4,14 +4,12 @@ import { apiRequest, formatDateTimeTL } from '../utils/api';
 import type { AccessGrant, AuditLogEntry } from '../types';
 
 interface PrivacyPageViewProps {
-  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onNotify: (type: 'success' | 'error' | 'info', text: string) => void;
   onPendingCountChange: (count: number) => void;
 }
 
 export function PrivacyPageView({
-  headerActions,
   onOpenSidebar,
   onNotify,
   onPendingCountChange,
@@ -90,18 +88,18 @@ export function PrivacyPageView({
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#f4f8ff]">
-      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-full flex-col tintalata-canvas">
+      <header className="tintalata-header-bar px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
             aria-label="Buksan ang Sidebar"
-            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+            className="lg:hidden rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100 transition-colors duration-200"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-sm shadow-blue-600/20 flex items-center justify-center text-white">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div>
@@ -114,7 +112,6 @@ export function PrivacyPageView({
             </p>
           </div>
         </div>
-        {headerActions}
       </header>
 
       <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">

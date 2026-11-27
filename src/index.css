@@ -14,14 +14,63 @@
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #eff6ff;
 }
 ::-webkit-scrollbar-thumb {
-  background: #bfdbfe;
+  background: linear-gradient(180deg, #93c5fd 0%, #60a5fa 100%);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #60a5fa;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+}
+
+/* Vibrant cohesive blue UI surfaces & smooth color transitions */
+@keyframes tintalataGradientDrift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.tintalata-canvas {
+  background: linear-gradient(135deg, #eaf2ff 0%, #f5f9ff 48%, #dceaff 100%);
+  background-size: 160% 160%;
+  animation: tintalataGradientDrift 18s ease infinite;
+}
+
+.tintalata-sidebar-bg {
+  background: linear-gradient(180deg, #ffffff 0%, #f2f7ff 45%, #e5efff 100%);
+}
+
+.tintalata-blue-btn {
+  background-image: linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #0284c7 100%);
+  background-size: 200% auto;
+  transition: background-position 320ms ease, transform 180ms ease, box-shadow 250ms ease;
+}
+
+.tintalata-blue-btn:hover {
+  background-position: right center;
+  box-shadow: 0 10px 22px -6px rgba(37, 99, 235, 0.45);
+}
+
+.tintalata-header-bar {
+  background-color: #ffffff;
+  border-bottom: 1px solid #bfdbfe;
+  box-shadow: 0 4px 16px -10px rgba(37, 99, 235, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tintalata-canvas {
+    animation: none;
+  }
+  .tintalata-blue-btn {
+    transition: none;
+  }
 }
 
 /* Word-like rich text editor styles */

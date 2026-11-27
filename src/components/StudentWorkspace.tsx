@@ -49,7 +49,6 @@ import { PrivacyPageView } from './PrivacyPageView';
 import { ProfilePageView } from './ProfilePageView';
 import { TintalataLogo } from './TintalataLogo';
 import { ShareModal } from './ShareModal';
-import { NotificationBell } from './NotificationBell';
 
 interface StudentWorkspaceProps {
   currentUser: User;
@@ -715,8 +714,10 @@ export function StudentWorkspace({
   };
 
   const navItemClass = (active: boolean) =>
-    `w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition ${
-      active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:bg-blue-50'
+    `w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all duration-300 ${
+      active
+        ? 'bg-gradient-to-r from-blue-600 via-blue-600 to-sky-600 text-white shadow-md shadow-blue-600/25'
+        : 'text-slate-700 hover:bg-gradient-to-r hover:from-blue-100/90 hover:to-sky-100/70 hover:text-blue-900 hover:translate-x-0.5'
     }`;
 
   const renderDocCard = (doc: DocumentSummary) => {
@@ -725,7 +726,7 @@ export function StudentWorkspace({
     return (
       <div
         key={doc.id}
-        className="group rounded-2xl border border-blue-100 bg-white p-4 shadow-2xs hover:border-blue-300 hover:shadow-md transition flex flex-col justify-between gap-3"
+        className="group rounded-2xl border border-blue-200/80 bg-white/95 p-4 shadow-sm hover:border-blue-400 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3"
       >
         <div className="space-y-2">
           <div className="flex items-start justify-between gap-2">
@@ -854,8 +855,8 @@ export function StudentWorkspace({
   };
 
   const sidebarContent = (
-    <div className="flex h-full flex-col bg-white border-r border-blue-100">
-      <div className="bg-white border-b border-blue-100 px-4 py-4 min-h-[76px] flex flex-col justify-center text-slate-900">
+    <div className="flex h-full flex-col tintalata-sidebar-bg border-r border-blue-200/80">
+      <div className="bg-white border-b border-blue-200/80 px-4 py-4 min-h-[76px] flex flex-col justify-center text-slate-900">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <TintalataLogo size="sm" />
@@ -869,7 +870,7 @@ export function StudentWorkspace({
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden rounded-lg p-1 text-slate-600 hover:bg-blue-50"
+            className="lg:hidden rounded-lg p-1 text-slate-600 hover:bg-blue-50 transition-colors duration-200"
             aria-label="Isara ang Sidebar"
           >
             <X className="h-5 w-5" />
@@ -878,13 +879,13 @@ export function StudentWorkspace({
       </div>
 
       {!readOnly && (
-        <div className="p-3 grid grid-cols-2 gap-2 border-b border-blue-50">
+        <div className="p-3 grid grid-cols-2 gap-2 border-b border-blue-100/80">
           <button
             type="button"
             onClick={() =>
               void handleCreateDocument(navSection === 'folder' ? selectedFolderId : null, false)
             }
-            className="flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-2.5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
+            className="flex items-center justify-center gap-1.5 rounded-xl tintalata-blue-btn px-2.5 py-2.5 text-xs font-bold text-white shadow-sm cursor-pointer"
           >
             <FilePlus2 className="h-4 w-4" />
             <span>Dokumento</span>
@@ -894,7 +895,7 @@ export function StudentWorkspace({
             onClick={() =>
               void handleCreateDocument(navSection === 'folder' ? selectedFolderId : null, true)
             }
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-2.5 py-2.5 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-gradient-to-r from-sky-50 to-blue-50 px-2.5 py-2.5 text-xs font-bold text-blue-800 hover:from-blue-600 hover:to-sky-600 hover:text-white hover:border-blue-600 transition-all duration-300 cursor-pointer"
           >
             <Brush className="h-4 w-4" />
             <span>Guhit</span>
@@ -1149,7 +1150,7 @@ export function StudentWorkspace({
       </div>
 
       {/* Bottom Profile & Course/Section Card */}
-      <div className="border-t border-blue-100 p-3.5 bg-blue-50/40">
+      <div className="border-t border-blue-200/80 p-3.5 bg-gradient-to-r from-blue-100/50 to-sky-100/50">
         {supportContext ? (
           <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs space-y-2">
             <div>
@@ -1166,14 +1167,14 @@ export function StudentWorkspace({
                   setSidebarOpen(false);
                 })
               }
-              className="w-full rounded-lg border border-blue-200 bg-white py-1.5 font-bold text-[11px] text-blue-700 hover:bg-blue-50"
+              className="w-full rounded-lg border border-blue-200 bg-white py-1.5 font-bold text-[11px] text-blue-700 hover:bg-blue-50 transition-colors duration-200"
             >
               Tingnan ang Storage ({storage.usedMB.toFixed(2)} / {storage.quotaMB.toFixed(0)} MB)
             </button>
             <button
               type="button"
               onClick={() => attemptLeaveEditor(supportContext.onExitSupport)}
-              className="w-full rounded-lg bg-blue-700 text-white py-1.5 font-bold text-[11px] hover:bg-blue-800"
+              className="w-full rounded-lg bg-blue-700 text-white py-1.5 font-bold text-[11px] hover:bg-blue-800 transition-colors duration-200"
             >
               Bumalik sa Admin Dashboard
             </button>
@@ -1189,17 +1190,17 @@ export function StudentWorkspace({
                 setSidebarOpen(false);
               })
             }
-            className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 border text-left transition ${
+            className={`group w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 border text-left transition-all duration-300 cursor-pointer ${
               (navSection === 'profile' || navSection === 'storage') && !activeDoc
-                ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
-                : 'bg-white border-blue-100 hover:bg-blue-50 text-slate-900'
+                ? 'bg-gradient-to-r from-blue-600 to-sky-600 border-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'bg-white/95 border-blue-200 hover:bg-gradient-to-r hover:from-blue-600 hover:to-sky-600 hover:border-blue-600 hover:text-white hover:shadow-md hover:shadow-blue-600/20 text-slate-900'
             }`}
           >
             <div
-              className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+              className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 transition-colors duration-300 ${
                 (navSection === 'profile' || navSection === 'storage') && !activeDoc
                   ? 'bg-white/20 text-white'
-                  : 'bg-blue-50 text-blue-700'
+                  : 'bg-blue-100 text-blue-700 group-hover:bg-white/20 group-hover:text-white'
               }`}
             >
               <UserIcon className="h-4 w-4" />
@@ -1207,10 +1208,10 @@ export function StudentWorkspace({
             <div className="min-w-0 flex-1">
               <p className="text-xs font-bold truncate">{currentUser.fullName}</p>
               <p
-                className={`text-[11px] truncate ${
+                className={`text-[11px] truncate transition-colors duration-300 ${
                   (navSection === 'profile' || navSection === 'storage') && !activeDoc
                     ? 'text-blue-100'
-                    : 'text-slate-500'
+                    : 'text-slate-500 group-hover:text-blue-100'
                 }`}
               >
                 {currentUser.courseSection || currentUser.email}
@@ -1242,7 +1243,7 @@ export function StudentWorkspace({
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f8ff]">
+    <div className="flex h-screen w-screen overflow-hidden tintalata-canvas">
       <aside className="no-print hidden lg:block w-72 shrink-0 h-full">{sidebarContent}</aside>
 
       {sidebarOpen && (
@@ -1305,7 +1306,6 @@ export function StudentWorkspace({
             documents={trashDocs}
             loading={loadingTrash}
             readOnly={readOnly}
-            headerActions={!supportContext ? <NotificationBell onNotify={onNotify} /> : undefined}
             onOpenSidebar={() => setSidebarOpen(true)}
             onRestoreFolder={handleRestoreFolder}
             onRestoreDocument={handleRestoreDoc}
@@ -1317,7 +1317,6 @@ export function StudentWorkspace({
           <StoragePageView
             storage={storage}
             supportStudentId={supportStudentId}
-            headerActions={!supportContext ? <NotificationBell onNotify={onNotify} /> : undefined}
             onOpenSidebar={() => setSidebarOpen(true)}
             onBackToProfile={!supportContext ? () => setNavSection('profile') : undefined}
             onOpenDocument={(id) => void openDocumentById(id)}
@@ -1329,7 +1328,6 @@ export function StudentWorkspace({
           />
         ) : navSection === 'privacy' && !supportContext ? (
           <PrivacyPageView
-            headerActions={<NotificationBell onNotify={onNotify} />}
             onOpenSidebar={() => setSidebarOpen(true)}
             onNotify={onNotify}
             onPendingCountChange={setPendingGrants}
@@ -1338,7 +1336,6 @@ export function StudentWorkspace({
           <ProfilePageView
             user={currentUser}
             storage={storage}
-            headerActions={<NotificationBell onNotify={onNotify} />}
             onOpenSidebar={() => setSidebarOpen(true)}
             onOpenStorage={() => setNavSection('storage')}
             onUpdated={(updated, msg) => {
@@ -1350,7 +1347,7 @@ export function StudentWorkspace({
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
             {/* Top Workspace Header */}
-            <header className="bg-white border-b border-blue-100 px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+            <header className="tintalata-header-bar px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   type="button"
@@ -1438,20 +1435,18 @@ export function StudentWorkspace({
                         false
                       )
                     }
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
+                    className="inline-flex items-center gap-1.5 rounded-xl tintalata-blue-btn px-3.5 py-2 text-xs font-bold text-white shadow-sm cursor-pointer"
                   >
                     <FilePlus2 className="h-4 w-4" />
                     Bagong Dokumento
                   </button>
                 )}
-
-                {!supportContext && <NotificationBell onNotify={onNotify} />}
               </div>
             </header>
 
             <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
               {loadingList ? (
-                <div className="rounded-2xl border border-blue-100 bg-white p-10 text-center text-sm text-slate-500">
+                <div className="rounded-2xl border border-blue-200 bg-white/90 p-10 text-center text-sm font-semibold text-blue-700">
                   Kinukuha ang iyong workspace...
                 </div>
               ) : (
@@ -1466,9 +1461,9 @@ export function StudentWorkspace({
                             <button
                               type="button"
                               onClick={() => void handleCreateDocument(null, false)}
-                              className="group rounded-2xl bg-gradient-to-br from-blue-700 to-blue-600 p-5 text-left text-white shadow-md shadow-blue-600/20 hover:from-blue-800 hover:to-blue-700 transition"
+                              className="group rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 p-5 text-left text-white shadow-lg shadow-blue-600/25 hover:from-blue-800 hover:via-blue-700 hover:to-sky-600 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-700/30 transition-all duration-300 cursor-pointer"
                             >
-                              <div className="h-10 w-10 rounded-xl bg-white/15 flex items-center justify-center mb-3">
+                              <div className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform duration-300">
                                 <FilePlus2 className="h-5 w-5" />
                               </div>
                               <p className="text-sm font-extrabold">Bagong Blangkong Dokumento</p>
@@ -1480,15 +1475,15 @@ export function StudentWorkspace({
                             <button
                               type="button"
                               onClick={() => void handleCreateDocument(null, true)}
-                              className="group rounded-2xl border border-blue-200 bg-white p-5 text-left hover:border-blue-400 hover:shadow-md transition"
+                              className="group rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-blue-50/90 to-indigo-100/80 p-5 text-left hover:from-blue-600 hover:via-indigo-600 hover:to-blue-700 hover:border-blue-600 hover:text-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-600/25 transition-all duration-300 cursor-pointer"
                             >
-                              <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-3">
+                              <div className="h-10 w-10 rounded-xl bg-indigo-100 text-indigo-700 group-hover:bg-white/20 group-hover:text-white flex items-center justify-center mb-3 transition-colors duration-300">
                                 <Brush className="h-5 w-5" />
                               </div>
-                              <p className="text-sm font-extrabold text-slate-900">
+                              <p className="text-sm font-extrabold text-slate-900 group-hover:text-white transition-colors duration-300">
                                 Bagong Guhit / Doodle
                               </p>
-                              <p className="text-xs text-slate-500 mt-1">
+                              <p className="text-xs text-slate-600 group-hover:text-blue-100 mt-1 transition-colors duration-300">
                                 Gumuhit nang malaya gamit ang panulat, lapis, at mga hugis.
                               </p>
                             </button>
@@ -1499,15 +1494,15 @@ export function StudentWorkspace({
                                 setEditingFolder(null);
                                 setFolderModalOpen(true);
                               }}
-                              className="group rounded-2xl border border-blue-200 bg-white p-5 text-left hover:border-blue-400 hover:shadow-md transition"
+                              className="group rounded-2xl border border-sky-200 bg-gradient-to-br from-white via-sky-50/90 to-cyan-100/75 p-5 text-left hover:from-sky-600 hover:via-blue-600 hover:to-cyan-600 hover:border-sky-600 hover:text-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-500/25 transition-all duration-300 cursor-pointer"
                             >
-                              <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                              <div className="h-10 w-10 rounded-xl bg-sky-100 text-sky-700 group-hover:bg-white/20 group-hover:text-white flex items-center justify-center mb-3 transition-colors duration-300">
                                 <FolderPlus className="h-5 w-5" />
                               </div>
-                              <p className="text-sm font-extrabold text-slate-900">
+                              <p className="text-sm font-extrabold text-slate-900 group-hover:text-white transition-colors duration-300">
                                 Gumawa ng Bagong Folder
                               </p>
-                              <p className="text-xs text-slate-500 mt-1">
+                              <p className="text-xs text-slate-600 group-hover:text-sky-100 mt-1 transition-colors duration-300">
                                 Ayusin ang iyong mga file gamit ang kulay at icon ng folder.
                               </p>
                             </button>
@@ -1517,8 +1512,8 @@ export function StudentWorkspace({
 
                       {/* Recently Opened & Recently Created */}
                       <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs overflow-hidden">
-                          <div className="border-b border-blue-100 bg-blue-50/50 px-5 py-3 flex items-center justify-between">
+                        <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
+                          <div className="border-b border-blue-200/70 bg-gradient-to-r from-blue-600/12 via-sky-500/10 to-indigo-500/10 px-5 py-3 flex items-center justify-between">
                             <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
                               <Clock className="h-4 w-4 text-blue-600" />
                               Kamakailang Binuksan
@@ -1526,21 +1521,21 @@ export function StudentWorkspace({
                             <button
                               type="button"
                               onClick={() => setNavSection('recent')}
-                              className="text-xs font-bold text-blue-700 hover:underline"
+                              className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
                             >
                               Lahat
                             </button>
                           </div>
-                          <div className="divide-y divide-slate-100">
+                          <div className="divide-y divide-blue-50">
                             {recentlyOpenedDocs.length === 0 ? (
-                              <p className="p-6 text-xs text-slate-400">Wala pang binuksang file.</p>
+                              <p className="p-6 text-xs text-slate-500">Wala pang binuksang file.</p>
                             ) : (
                               recentlyOpenedDocs.map((d) => (
                                 <button
                                   key={d.id}
                                   type="button"
                                   onClick={() => void openDocumentById(d.id)}
-                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-blue-50/40 transition"
+                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 transition-colors duration-200"
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
                                     <FileText className="h-4 w-4 text-blue-600 shrink-0" />
@@ -1563,8 +1558,8 @@ export function StudentWorkspace({
                           </div>
                         </div>
 
-                        <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs overflow-hidden">
-                          <div className="border-b border-blue-100 bg-blue-50/50 px-5 py-3 flex items-center justify-between">
+                        <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
+                          <div className="border-b border-blue-200/70 bg-gradient-to-r from-sky-500/12 via-blue-600/10 to-cyan-500/10 px-5 py-3 flex items-center justify-between">
                             <span className="text-xs font-extrabold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
                               <FilePlus2 className="h-4 w-4 text-blue-600" />
                               Kamakailang Ginawa
@@ -1575,21 +1570,21 @@ export function StudentWorkspace({
                                 setSortBy('created');
                                 setNavSection('documents');
                               }}
-                              className="text-xs font-bold text-blue-700 hover:underline"
+                              className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
                             >
                               Lahat
                             </button>
                           </div>
-                          <div className="divide-y divide-slate-100">
+                          <div className="divide-y divide-blue-50">
                             {recentlyCreatedDocs.length === 0 ? (
-                              <p className="p-6 text-xs text-slate-400">Wala pang ginawang file.</p>
+                              <p className="p-6 text-xs text-slate-500">Wala pang ginawang file.</p>
                             ) : (
                               recentlyCreatedDocs.map((d) => (
                                 <button
                                   key={d.id}
                                   type="button"
                                   onClick={() => void openDocumentById(d.id)}
-                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-blue-50/40 transition"
+                                  className="w-full px-5 py-3 flex items-center justify-between gap-3 text-left hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 transition-colors duration-200"
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
                                     <FileText className="h-4 w-4 text-blue-600 shrink-0" />
@@ -1644,7 +1639,7 @@ export function StudentWorkspace({
                           {visibleFolders.map((folder) => (
                             <div
                               key={folder.id}
-                              className="group rounded-2xl border border-blue-100 bg-white p-4 shadow-2xs hover:border-blue-300 hover:shadow-md transition flex flex-col justify-between gap-3"
+                              className="group rounded-2xl border border-blue-200/80 bg-white/95 p-4 shadow-sm hover:border-blue-400 hover:bg-gradient-to-br hover:from-white hover:to-blue-50/90 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/15 transition-all duration-300 flex flex-col justify-between gap-3"
                             >
                               <button
                                 type="button"
@@ -1752,11 +1747,11 @@ export function StudentWorkspace({
                           : `Lahat ng Dokumento (${visibleDocuments.length})`}
                       </h2>
                       {visibleDocuments.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-10 text-center">
-                          <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <div className="rounded-2xl border border-blue-200/80 bg-gradient-to-br from-white via-blue-50/75 to-sky-50/85 p-10 text-center shadow-sm hover:border-blue-400 hover:shadow-md transition-all duration-300">
+                          <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-600 to-sky-500 text-white shadow-md shadow-blue-500/25 flex items-center justify-center">
                             <FileText className="h-6 w-6" />
                           </div>
-                          <h3 className="text-sm font-bold text-slate-900">
+                          <h3 className="text-sm font-extrabold text-blue-950">
                             {navSection === 'favorites'
                               ? 'Wala pang paboritong dokumento'
                               : navSection === 'shared'

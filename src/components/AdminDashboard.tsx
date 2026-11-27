@@ -463,13 +463,15 @@ export function AdminDashboard({
     resetRequests.filter((r) => r.status === 'pending').length;
 
   const navClass = (active: boolean) =>
-    `w-full flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-bold transition ${
-      active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:bg-blue-50'
+    `w-full flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-bold transition-all duration-300 ${
+      active
+        ? 'bg-gradient-to-r from-blue-600 via-blue-600 to-sky-600 text-white shadow-md shadow-blue-600/25'
+        : 'text-slate-700 hover:bg-gradient-to-r hover:from-blue-100/90 hover:to-sky-100/70 hover:text-blue-900 hover:translate-x-0.5'
     }`;
 
   const sidebarContent = (
-    <div className="flex h-full flex-col bg-white border-r border-blue-100">
-      <div className="bg-white border-b border-blue-100 p-4 text-slate-900">
+    <div className="flex h-full flex-col tintalata-sidebar-bg border-r border-blue-200/80">
+      <div className="bg-white border-b border-blue-200/80 p-4 text-slate-900">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <TintalataLogo size="sm" />
@@ -580,7 +582,7 @@ export function AdminDashboard({
           </nav>
         </div>
 
-        <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3.5 text-[11px] text-slate-700 space-y-1.5">
+        <div className="rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50 to-sky-50/90 p-3.5 text-[11px] text-slate-700 space-y-1.5">
           <p className="font-bold text-blue-950 flex items-center gap-1.5">
             <ShieldCheck className="h-4 w-4 text-blue-700" />
             Proteksyon sa Pagkapribado
@@ -592,11 +594,11 @@ export function AdminDashboard({
         </div>
       </div>
 
-      <div className="border-t border-blue-100 p-3.5">
+      <div className="border-t border-blue-200/80 p-3.5 bg-gradient-to-r from-blue-100/40 to-sky-100/40">
         <button
           type="button"
           onClick={() => void onLogout()}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white py-2 text-xs font-bold text-blue-800 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all duration-300 cursor-pointer"
         >
           <LogOut className="h-3.5 w-3.5" />
           Mag-log out
@@ -630,7 +632,7 @@ export function AdminDashboard({
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f8ff]">
+    <div className="flex h-screen w-screen overflow-hidden tintalata-canvas">
       <aside className="hidden lg:block w-72 shrink-0 h-full">{sidebarContent}</aside>
 
       {sidebarOpen && (
@@ -642,13 +644,13 @@ export function AdminDashboard({
 
       <main className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
         {/* Top Desktop Bar */}
-        <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+        <header className="tintalata-header-bar px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
               aria-label="Buksan ang Sidebar"
-              className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+              className="lg:hidden rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100 transition-colors duration-200"
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -664,7 +666,7 @@ export function AdminDashboard({
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition"
+              className="inline-flex items-center gap-1.5 rounded-xl tintalata-blue-btn px-3.5 py-2 text-xs font-bold text-white shadow-sm cursor-pointer"
             >
               <UserPlus className="h-3.5 w-3.5" />
               Bagong Account ng Mag-aaral
@@ -673,7 +675,7 @@ export function AdminDashboard({
               type="button"
               onClick={() => void loadDashboard()}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100 transition"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all duration-300 cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
               I-refresh ang Datos
@@ -729,7 +731,7 @@ export function AdminDashboard({
 
               {overview && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                  <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-700 to-blue-600 p-5 text-white shadow-sm">
+                  <div className="rounded-2xl border border-blue-300 bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 p-5 text-white shadow-lg shadow-blue-600/20 hover:-translate-y-0.5 hover:shadow-xl transition-all duration-300">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-blue-100">Kabuuang Mag-aaral</p>
                       <Users className="h-5 w-5 text-blue-100" />
@@ -738,7 +740,7 @@ export function AdminDashboard({
                     <p className="mt-1 text-xs text-blue-100">Nakarehistrong account</p>
                   </div>
 
-                  <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-2xs">
+                  <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-sky-50/70 to-blue-50/80 p-5 shadow-sm hover:border-blue-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-emerald-700">Mga Aktibong Account</p>
                       <UserCheck className="h-5 w-5 text-emerald-600" />
@@ -751,7 +753,7 @@ export function AdminDashboard({
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-rose-200 bg-white p-5 shadow-2xs">
+                  <div className="rounded-2xl border border-rose-200 bg-gradient-to-br from-white to-rose-50/60 p-5 shadow-sm hover:border-rose-300 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-rose-700">
                         Sinuspinde / Hindi Aktibo
@@ -767,7 +769,7 @@ export function AdminDashboard({
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-2xs">
+                  <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-white via-blue-50/75 to-indigo-50/80 p-5 shadow-sm hover:border-blue-400 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-blue-700">
                         Kabuuang Storage (MB)
@@ -786,26 +788,26 @@ export function AdminDashboard({
               )}
 
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs overflow-hidden">
-                  <div className="border-b border-blue-100 bg-blue-50/50 px-5 py-3.5 flex items-center justify-between">
-                    <h3 className="text-sm font-extrabold text-slate-900">
+                <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
+                  <div className="border-b border-blue-200/70 bg-gradient-to-r from-blue-600/12 via-sky-500/10 to-indigo-500/10 px-5 py-3.5 flex items-center justify-between">
+                    <h3 className="text-sm font-extrabold text-blue-950">
                       Kamakailang Nagparehistrong Mag-aaral
                     </h3>
                     <button
                       type="button"
                       onClick={() => setSection('students')}
-                      className="text-xs font-bold text-blue-700 hover:underline"
+                      className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
                     >
                       Tingnan Lahat
                     </button>
                   </div>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-blue-50">
                     {students.slice(0, 6).map((s) => {
                       const badge = STATUS_BADGES[s.status] || STATUS_BADGES.active;
                       return (
                         <div
                           key={s.id}
-                          className="px-5 py-3 flex items-center justify-between gap-3 hover:bg-blue-50/30"
+                          className="px-5 py-3 flex items-center justify-between gap-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-sky-50/70 transition-colors duration-200"
                         >
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-slate-900 truncate">{s.fullName}</p>
@@ -829,22 +831,25 @@ export function AdminDashboard({
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-blue-100 bg-white shadow-2xs overflow-hidden">
-                  <div className="border-b border-blue-100 bg-blue-50/50 px-5 py-3.5 flex items-center justify-between">
-                    <h3 className="text-sm font-extrabold text-slate-900">
+                <div className="rounded-2xl border border-blue-200/80 bg-white/95 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 overflow-hidden">
+                  <div className="border-b border-blue-200/70 bg-gradient-to-r from-sky-500/12 via-blue-600/10 to-indigo-500/10 px-5 py-3.5 flex items-center justify-between">
+                    <h3 className="text-sm font-extrabold text-blue-950">
                       Kamakailang Aktibidad sa Seguridad
                     </h3>
                     <button
                       type="button"
                       onClick={() => setSection('audit')}
-                      className="text-xs font-bold text-blue-700 hover:underline"
+                      className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline transition-colors duration-200"
                     >
                       Tingnan Lahat
                     </button>
                   </div>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-blue-50">
                     {auditLogs.slice(0, 6).map((l) => (
-                      <div key={l.id} className="px-5 py-3 text-xs flex justify-between gap-3">
+                      <div
+                        key={l.id}
+                        className="px-5 py-3 text-xs flex justify-between gap-3 hover:bg-gradient-to-r hover:from-blue-50/70 hover:to-sky-50/50 transition-colors duration-200"
+                      >
                         <div>
                           <p className="font-bold text-slate-900">{l.details || l.action}</p>
                           <p className="text-slate-500">Ni: {l.actorName}</p>

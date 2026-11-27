@@ -7,7 +7,6 @@ import { PasswordInput } from './PasswordInput';
 interface ProfilePageViewProps {
   user: User;
   storage: StorageSummary;
-  headerActions?: React.ReactNode;
   onOpenSidebar: () => void;
   onOpenStorage: () => void;
   onUpdated: (user: User, message: string) => void;
@@ -25,7 +24,6 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 export function ProfilePageView({
   user,
   storage,
-  headerActions,
   onOpenSidebar,
   onOpenStorage,
   onUpdated,
@@ -75,18 +73,18 @@ export function ProfilePageView({
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#f4f8ff]">
-      <header className="border-b border-blue-100 bg-white px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-full flex-col tintalata-canvas">
+      <header className="tintalata-header-bar px-5 sm:px-6 py-4 min-h-[76px] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onOpenSidebar}
             aria-label="Buksan ang Sidebar"
-            className="lg:hidden rounded-xl border border-blue-100 bg-blue-50 p-2 text-blue-700"
+            className="lg:hidden rounded-xl border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100 transition-colors duration-200"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-sky-500 shadow-sm shadow-blue-600/20 flex items-center justify-center text-white">
             <UserIcon className="h-5 w-5" />
           </div>
           <div>
@@ -100,11 +98,10 @@ export function ProfilePageView({
         </div>
 
         <div className="flex items-center gap-2">
-          {headerActions}
           <button
             type="button"
             onClick={() => void onLogout()}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white transition-all duration-300"
           >
             <LogOut className="h-4 w-4" />
             Mag-log out
