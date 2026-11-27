@@ -1485,22 +1485,6 @@ export function StudentWorkspace({
                     <option value="size">Laki ng File</option>
                   </select>
                 </div>
-
-                {!readOnly && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleCreateDocument(
-                        navSection === 'folder' ? selectedFolderId : null,
-                        false
-                      )
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-xl tintalata-blue-btn px-3.5 py-2 text-xs font-bold text-white shadow-sm cursor-pointer"
-                  >
-                    <FilePlus2 className="h-4 w-4" />
-                    Bagong Dokumento
-                  </button>
-                )}
               </div>
             </header>
 
