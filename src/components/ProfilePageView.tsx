@@ -300,31 +300,6 @@ export function ProfilePageView({
                 </span>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3.5">
-                <div>
-                  <p className="text-xs font-bold text-slate-900">Paganahin ang Dark Mode</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Mananatiling naka-save ang napiling tema kahit mag-reload o mag-log out, hanggang sa manu-mano mong palitan dito.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={themeMode === 'dark'}
-                  aria-label="I-toggle ang Dark Mode"
-                  onClick={() => void handleSelectTheme(themeMode === 'dark' ? 'light' : 'dark')}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ${
-                    themeMode === 'dark' ? 'bg-blue-600' : 'bg-slate-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
-                      themeMode === 'dark' ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-
               <div className="grid grid-cols-2 gap-2.5 text-xs">
                 <button
                   type="button"
